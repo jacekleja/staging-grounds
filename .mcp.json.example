@@ -1,0 +1,74 @@
+{
+  "mcpServers": {
+    "gmail": {
+      "type": "http",
+      "url": "https://gmail.mcp.claude.com/mcp"
+    },
+    "google-calendar": {
+      "type": "http",
+      "url": "https://gcal.mcp.claude.com/mcp"
+    },
+    "slack": {
+      "type": "http",
+      "url": "https://mcp.slack.com/mcp",
+      "oauth": {
+        "clientId": "<YOUR_SLACK_CLIENT_ID>",
+        "callbackPort": 3118
+      }
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_PAT}"
+      }
+    },
+    "atlassian": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v1/mcp"
+    },
+    "langsmith": {
+      "type": "http",
+      "url": "https://langsmith-mcp-server.onrender.com/mcp",
+      "headers": {
+        "LANGSMITH-API-KEY": "${LANGSMITH_API_KEY}"
+      }
+    },
+    "aws-core": {
+      "command": "uvx",
+      "args": ["awslabs.core-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "<YOUR_AWS_REGION>",
+        "AWS_PROFILE": "${AWS_PROFILE:-default}",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "aws-bedrock-agentcore": {
+      "command": "uvx",
+      "args": ["awslabs.amazon-bedrock-agentcore-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "<YOUR_AWS_REGION>",
+        "AWS_PROFILE": "${AWS_PROFILE:-default}",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "aws-bedrock-kb": {
+      "command": "uvx",
+      "args": ["awslabs.amazon-bedrock-knowledge-bases-retrieval-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "<YOUR_AWS_REGION>",
+        "AWS_PROFILE": "${AWS_PROFILE:-default}",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "aws-api": {
+      "command": "uvx",
+      "args": ["awslabs.aws-api-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "<YOUR_AWS_REGION>",
+        "AWS_PROFILE": "${AWS_PROFILE:-default}",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}
