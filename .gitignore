@@ -1,0 +1,57 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.jks
+secrets/
+credentials/
+
+# API keys & tokens
+**/api_keys*
+**/tokens*
+**/service_account*.json
+
+# Data dumps & customer data
+data/
+*.csv
+*.jsonl
+*.parquet
+*.db
+*.sqlite
+*.sql
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Claude Code local config
+.claude/
+.mcp.json
