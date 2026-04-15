@@ -1,0 +1,12 @@
+{
+  "name": "luigis-box-presentations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build-deck.mjs"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

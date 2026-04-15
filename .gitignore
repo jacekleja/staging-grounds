@@ -54,3 +54,55 @@ logs/
 # Claude Code local config
 .claude/
 .mcp.json
+
+# BEGIN ContextAwareAgent
+.claude/agents/architect.md
+.claude/agents/auditor.md
+.claude/agents/bootstrap-extractor.md
+.claude/agents/bootstrap-orchestrator.md
+.claude/agents/critic.md
+.claude/agents/diagnostician.md
+.claude/agents/implementer.md
+.claude/agents/planner.md
+.claude/agents/researcher.md
+.claude/agents/reviewer.md
+.claude/agents/solution-designer.md
+.claude/agents/study-connection-auditor.md
+.claude/agents/study-knowledge-validator.md
+.claude/agents/study-orchestrator.md
+.claude/agents/study-report-digester.md
+.claude/agents/study-update-verifier.md
+.claude/agents/synthesizer.md
+.claude/rules/README.md
+.claude/rules/completion-loop-reaudit.md
+.claude/rules/knowledge-edit-discipline.md
+.claude/rules/plan-quality-requirements.md
+.claude/rules/typescript-formatter-workaround.md
+.claude/hooks/README.md
+.claude/hooks/agent-latency-tracker.py
+.claude/hooks/build-pass-gate.py
+.claude/hooks/critic-gate-check.py
+.claude/hooks/critic-gate-tracker.py
+.claude/hooks/cycle-hook.py
+.claude/hooks/debug-hook.py
+.claude/hooks/delegation-trace-hook.py
+.claude/hooks/sketch-check-hook.py
+.claude/hooks/truncate-bash.py
+.claude/orchestrator-prompt.md
+.claude/bootstrap-config.json
+bin/claude-bootstrap
+bin/claude-session
+bin/claude-study
+bin/claude-study.ts
+bin/dashboard
+docs/extraction-guide.md
+.claude/mcp/context-tools
+dashboard
+.claude/hooks/delegation-monitor.py
+.claude/hooks/write-gate.py
+.agent_context/
+# END ContextAwareAgent
+
+# Presentations Node environment
+presentations/node_modules/
+presentations/package-lock.json
