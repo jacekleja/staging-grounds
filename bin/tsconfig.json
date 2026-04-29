@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": false,
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": false,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "js-yaml": ["../.claude/mcp/context-tools/node_modules/js-yaml"],
+      "js-yaml/*": ["../.claude/mcp/context-tools/node_modules/js-yaml/*"]
+    }
+  },
+  "include": [
+    "claude-study.ts",
+    "test_claude_study.ts",
+    "../.claude/mcp/context-tools/src/tools/knowledge.ts",
+    "../.claude/mcp/context-tools/src/utils/logging.ts"
+  ]
+}

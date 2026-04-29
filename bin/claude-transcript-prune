@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+# claude-transcript-prune -- retention script for ~/.claude/projects/ JSONL transcripts
+#
+# Rules:
+#   R1: Delete flat JSONLs with mtime > 30 days
+#   R2: Move flat JSONLs with 7 < mtime <= 30 days into archive/ subdir
+#   R3: Delete flat JSONLs with <= 10 lines AND mtime > 3 days (abandoned sessions)
+#   R4: Delete {UUID}/ subdirs with mtime > 7 days (subagent transcript containers)
+#
+# Gate: ~/.claude/.prune-last — skip if last run was < 24h ago (unless --force).
+
+import argparse
+import datetime
+import os
+import shutil
+import sys
+import tempfile
+import time
+import uuid
+
+
+PRUNE_LAST_FILE = os.path.expanduser('~/.claude/.prune-last')
+PROJECTS_ROOT = os.path.expanduser('~/.claude/projects')
+
+# Thresholds in seconds
+T_30D = 30 * 86400
+T_7D  =  7 * 86400
+T_3D  =  3 * 86400
+T_24H =      86400
+
+R3_MAX_LINES = 10
+
+
+def _read_prune_last():
+    """Return mtime of last prune run as a UTC datetime, or None."""
+    try:
+        with open(PRUNE_LAST_FILE) as f:
+            ts = f.read().strip()
+        return datetime.datetime.fromisoformat(ts)
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _write_prune_last():
+    """Atomically write current UTC ISO-8601 timestamp to PRUNE_LAST_FILE."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(PRUNE_LAST_FILE),
+        prefix='.prune-last.tmp.',
+    )
+    try:
+        with os.fdopen(tmp_fd, 'w') as f:
+            f.write(now_iso + '\n')
+        os.rename(tmp_path, PRUNE_LAST_FILE)
+    except Exception:
+        # Clean up temp file if rename failed
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _is_uuid_dir(name):
+    """Return True if name looks like a UUID (8-4-4-4-12 hex)."""
+    try:
+        val = uuid.UUID(name)
+        return str(val) == name.lower()
+    except ValueError:
+        return False
+
+
+def _line_count(path):
+    """Count lines in a file; return 0 on any error."""
+    try:
+        with open(path, 'rb') as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
+def _is_safe_path(path, root):
+    """Return True if path is strictly under root (no symlink escapes)."""
+    try:
+        real_path = os.path.realpath(path)
+        real_root = os.path.realpath(root)
+        return real_path.startswith(real_root + os.sep) or real_path == real_root
+    except OSError:
+        return False
+
+
+def process_slug(slug_dir, now_ts, dry_run):
+    """
+    Apply R1-R4 to a single slug directory.
+    Returns dict with counts: r1, r2, r3, r4.
+    """
+    counts = {'r1': 0, 'r2': 0, 'r3': 0, 'r4': 0}
+
+    try:
+        entries = os.listdir(slug_dir)
+    except OSError as e:
+        print(f'  WARNING: cannot listdir {slug_dir}: {e}', file=sys.stderr)
+        return counts
+
+    archive_dir = os.path.join(slug_dir, 'archive')
+
+    for entry in entries:
+        if entry == 'archive':
+            continue
+
+        full_path = os.path.join(slug_dir, entry)
+
+        # Safety: skip if this path escapes the slug dir (e.g., symlink)
+        if not _is_safe_path(full_path, slug_dir):
+            print(f'  WARNING: skipping unsafe path: {full_path}', file=sys.stderr)
+            continue
+
+        try:
+            mtime = os.path.getmtime(full_path)
+        except OSError:
+            continue
+
+        age = now_ts - mtime
+
+        # R4: UUID subdirectories older than 7 days
+        if os.path.isdir(full_path) and _is_uuid_dir(entry):
+            if age > T_7D:
+                if dry_run:
+                    print(f'DRY-RUN: R4 would delete dir {full_path}')
+                    counts['r4'] += 1
+                else:
+                    try:
+                        shutil.rmtree(full_path)
+                        counts['r4'] += 1
+                    except OSError as e:
+                        print(f'  WARNING: R4 rmtree failed {full_path}: {e}', file=sys.stderr)
+            continue
+
+        # Only flat JSONLs from here
+        if not entry.endswith('.jsonl') or not os.path.isfile(full_path):
+            continue
+
+        # R1: flat JSONL older than 30 days — delete
+        if age > T_30D:
+            if dry_run:
+                print(f'DRY-RUN: R1 would delete {full_path}')
+                counts['r1'] += 1
+            else:
+                try:
+                    os.unlink(full_path)
+                    counts['r1'] += 1
+                except OSError as e:
+                    print(f'  WARNING: R1 unlink failed {full_path}: {e}', file=sys.stderr)
+            continue
+
+        # R3: flat JSONL <= 10 lines AND older than 3 days — delete (abandoned)
+        # Check R3 before R2 so abandoned files within 7-30d range are deleted, not archived
+        if age > T_3D and _line_count(full_path) <= R3_MAX_LINES:
+            if dry_run:
+                print(f'DRY-RUN: R3 would delete {full_path}')
+                counts['r3'] += 1
+            else:
+                try:
+                    os.unlink(full_path)
+                    counts['r3'] += 1
+                except OSError as e:
+                    print(f'  WARNING: R3 unlink failed {full_path}: {e}', file=sys.stderr)
+            continue
+
+        # R2: flat JSONL 7–30 days — move to archive/
+        if age > T_7D:
+            if dry_run:
+                print(f'DRY-RUN: R2 would archive {full_path}')
+                counts['r2'] += 1
+            else:
+                try:
+                    os.makedirs(archive_dir, exist_ok=True)
+                    dest = os.path.join(archive_dir, entry)
+                    shutil.move(full_path, dest)
+                    counts['r2'] += 1
+                except OSError as e:
+                    print(f'  WARNING: R2 move failed {full_path}: {e}', file=sys.stderr)
+            continue
+
+        # R5 (implicit): mtime <= 7 days — keep in place
+
+    return counts
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Prune ~/.claude/projects/ JSONL transcripts per retention policy.'
+    )
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Log intended actions; do not modify disk.')
+    parser.add_argument('--force', action='store_true',
+                        help='Bypass the 24h gate (run even if last run was recent).')
+    args = parser.parse_args()
+
+    # Gate: skip if last run was < 24h ago (unless --force or --dry-run).
+    # --dry-run bypasses the gate because it makes no disk changes and users
+    # invoking --dry-run want to see what would happen, not be silently skipped.
+    if not args.force and not args.dry_run:
+        last = _read_prune_last()
+        if last is not None:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            # Ensure last is timezone-aware for comparison
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=datetime.timezone.utc)
+            elapsed = (now_utc - last).total_seconds()
+            if elapsed < T_24H:
+                return 0
+
+    if not os.path.isdir(PROJECTS_ROOT):
+        print(f'[claude-transcript-prune] projects root not found: {PROJECTS_ROOT}')
+        return 0
+
+    now_ts = time.time()
+
+    try:
+        slug_entries = os.listdir(PROJECTS_ROOT)
+    except OSError as e:
+        print(f'[claude-transcript-prune] ERROR: cannot list {PROJECTS_ROOT}: {e}', file=sys.stderr)
+        return 1
+
+    for slug in sorted(slug_entries):
+        slug_dir = os.path.join(PROJECTS_ROOT, slug)
+
+        if not os.path.isdir(slug_dir):
+            continue
+
+        # Safety: ensure slug_dir doesn't escape PROJECTS_ROOT via symlink
+        if not _is_safe_path(slug_dir, PROJECTS_ROOT):
+            print(f'[claude-transcript-prune] WARNING: skipping unsafe slug: {slug}',
+                  file=sys.stderr)
+            continue
+
+        counts = process_slug(slug_dir, now_ts, args.dry_run)
+
+        prefix = 'DRY-RUN: ' if args.dry_run else ''
+        print(
+            f'{prefix}[{slug}] '
+            f'R1: deleted {counts["r1"]}; '
+            f'R2: archived {counts["r2"]}; '
+            f'R3: deleted {counts["r3"]}; '
+            f'R4: deleted {counts["r4"]}'
+        )
+
+    # Update gate timestamp (skip on dry-run — no disk changes were made)
+    if not args.dry_run:
+        try:
+            _write_prune_last()
+        except Exception as e:
+            print(f'[claude-transcript-prune] WARNING: failed to write {PRUNE_LAST_FILE}: {e}',
+                  file=sys.stderr)
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
