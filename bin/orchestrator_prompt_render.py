@@ -18,16 +18,32 @@ _ANY_MARKER_RE = re.compile(r"<!--\s*/?IF\s+[a-z][a-z0-9_-]*\s*-->")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 _MIN_OUTPUT_CHARS = 500
 
+# Scope flags are session-scope activation switches (root vs child orchestrator mode).
+# They are NOT pipeline names and MUST NOT appear in bootstrap-config.json:pipelines.registry.
+# See design-SUBORCH-v6-total.md §6.2-6.4 (namespace-separation invariant).
+_SCOPE_FLAGS = frozenset({"root", "child"})
+
 
 def _classify(name: str, active_flags: set, registry: set, lineno: int) -> tuple:
-    """Return (keep_inner, preserve_markers); emit stderr warning if name unknown."""
+    """Return (keep_inner, preserve_markers); exit non-zero if name unknown.
+
+    Unknown pipeline name is a hard error (typo catches at CI time) per
+    pipeline-conditional-content-discipline.md. The fail-open behavior was
+    replaced with sys.exit(1) so that CI catches registry mismatches pre-merge.
+
+    Scope flags (root, child) are resolved first via _SCOPE_FLAGS before the
+    registry lookup — they are valid IF-block names but are NOT pipelines.
+    """
+    # Scope-flag branch: resolved by active_flags membership, not registry.
+    if name in _SCOPE_FLAGS:
+        return (True, False) if name in active_flags else (False, False)
     if name not in registry:
         print(
-            f"WARNING: marker references unknown pipeline '{name}' (line {lineno});"
-            f" preserving content (fail-open). Registry: [{', '.join(sorted(registry))}]",
+            f"ERROR: marker references unknown pipeline '{name}' (line {lineno});"
+            f" not in registry. Registry: [{', '.join(sorted(registry))}]",
             file=sys.stderr,
         )
-        return (True, True)
+        sys.exit(1)
     return (True, False) if name in active_flags else (False, False)
 
 
@@ -129,28 +145,95 @@ render_orchestrator_prompt = render
 
 
 if __name__ == "__main__":
-    # CSV parsing uses str.split(","), not shlex — names match [a-z][a-z0-9_-]*
-    # and cannot contain commas, so csv.reader is unnecessary.
+    # --scope <name> form: additive alias for scope-flag activation.
+    # Positional CSV invocation (<template> <output> <active-csv> <registry-csv>) is
+    # preserved unchanged for backcompat with bin/claude-session (B5) and CI invocations.
+    import json as _json
+    from pathlib import Path
+
     argv = sys.argv
-    if len(argv) != 5:
-        print(
-            f"usage: {argv[0]} <template_path> <output_path> <active-csv> <registry-csv>\n"
-            f"  empty CSV = empty set (pass '' for no flags / no registry)",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    _template, _output, _active_csv, _registry_csv = argv[1], argv[2], argv[3], argv[4]
-    _active = {s for s in _active_csv.split(",") if s}
-    _registry = {s for s in _registry_csv.split(",") if s}
-    try:
-        # Kwargs: CLI order (template, output, active, registry) differs from signature order;
-        # explicit kwargs survive future signature additions.
-        render_orchestrator_prompt(
-            template_path=_template,
-            active_flags=_active,
-            registry=_registry,
-            output_path=_output,
-        )
-    except ValueError as e:
-        print(f"render error: {e}", file=sys.stderr)
-        sys.exit(1)
+
+    if len(argv) >= 2 and argv[1] == "--scope":
+        # --scope <name> [<template> <output>] form.
+        # Validates that name is in _SCOPE_FLAGS; loads registry from bootstrap-config.json.
+        if len(argv) < 3:
+            print(
+                f"usage: {argv[0]} --scope <name> [<template_path> <output_path>]\n"
+                f"  valid scope names: {sorted(_SCOPE_FLAGS)}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _scope_name = argv[2]
+        if _scope_name not in _SCOPE_FLAGS:
+            print(
+                f"ERROR: invalid scope name '{_scope_name}'; "
+                f"valid scope names are: {sorted(_SCOPE_FLAGS)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _active = {_scope_name}
+
+        # Template and output paths are optional positional args after --scope <name>.
+        if len(argv) >= 5:
+            _template, _output = argv[3], argv[4]
+        elif len(argv) == 4:
+            print(
+                f"usage: {argv[0]} --scope <name> <template_path> <output_path>",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        else:
+            # No template/output given; derive from canonical locations relative to this script.
+            _bin_dir = Path(__file__).resolve().parent
+            _root = _bin_dir.parent
+            _template = str(_root / ".claude" / "orchestrator-prompt.md")
+            _output = str(_root / ".claude" / "orchestrator-prompt-rendered.md")
+
+        # Load registry from bootstrap-config.json adjacent to the project root.
+        _bin_dir = Path(__file__).resolve().parent
+        _config = _bin_dir.parent / ".claude" / "bootstrap-config.json"
+        if _config.exists():
+            with open(_config, encoding="utf-8") as _fh:
+                _cfg = _json.load(_fh)
+            _registry = set(_cfg.get("pipelines", {}).get("registry", []))
+        else:
+            _registry = set()
+
+        try:
+            render_orchestrator_prompt(
+                template_path=_template,
+                active_flags=_active,
+                registry=_registry,
+                output_path=_output,
+            )
+        except ValueError as e:
+            print(f"render error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    else:
+        # Original positional CSV form: <template> <output> <active-csv> <registry-csv>
+        # CSV parsing uses str.split(","), not shlex — names match [a-z][a-z0-9_-]*
+        # and cannot contain commas, so csv.reader is unnecessary.
+        if len(argv) != 5:
+            print(
+                f"usage: {argv[0]} <template_path> <output_path> <active-csv> <registry-csv>\n"
+                f"  empty CSV = empty set (pass '' for no flags / no registry)\n"
+                f"  --scope form: {argv[0]} --scope <name> [<template_path> <output_path>]",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        _template, _output, _active_csv, _registry_csv = argv[1], argv[2], argv[3], argv[4]
+        _active = {s for s in _active_csv.split(",") if s}
+        _registry = {s for s in _registry_csv.split(",") if s}
+        try:
+            # Kwargs: CLI order (template, output, active, registry) differs from signature order;
+            # explicit kwargs survive future signature additions.
+            render_orchestrator_prompt(
+                template_path=_template,
+                active_flags=_active,
+                registry=_registry,
+                output_path=_output,
+            )
+        except ValueError as e:
+            print(f"render error: {e}", file=sys.stderr)
+            sys.exit(1)

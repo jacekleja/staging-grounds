@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -173,6 +174,22 @@ def _read_records(issue_p: pathlib.Path) -> list:
     return records
 
 
+# Matches `:YYYYMMDD-HHMMSS-PID` timestamp suffix appended by automated triagers.
+_TIMESTAMP_SUFFIX_RE = re.compile(r':[0-9]{8}-[0-9]{6}-[0-9]+$')
+
+
+def _normalize_dedupe_key(key: str) -> str:
+    """Strip trailing timestamp suffix of the form :YYYYMMDD-HHMMSS-PID from dedupe_key.
+
+    Automated triagers embed a PID-stamped timestamp in dedupe_keys to avoid
+    same-session collisions, producing keys like
+    ``hygiene:some-file.md:20260429-131624-2176`` that compare unequal to the
+    base key ``hygiene:some-file.md`` filed in a different session.  Normalizing
+    at filing time makes the dedupe comparison stable across sessions.
+    """
+    return _TIMESTAMP_SUFFIX_RE.sub('', key)
+
+
 def _atomic_rewrite(issue_p: pathlib.Path, records: list) -> None:
     """Write records atomically via tempfile + os.replace + fsync.
 
@@ -290,6 +307,9 @@ def file_issue(
     if not dedupe_key or not dedupe_key.strip():
         return {'id': None, 'error': 'invalid-dedupe-key', 'message': 'dedupe_key is required and must be non-empty'}
 
+    # I2: strip timestamp suffix so repeated automated filings dedupe correctly.
+    dedupe_key = _normalize_dedupe_key(dedupe_key)
+
     if not origin or not isinstance(origin, dict):
         return {'id': None, 'error': 'invalid-origin', 'message': 'origin must be a non-empty dict'}
 
@@ -329,14 +349,16 @@ def file_issue(
         existing = _read_records(issue_p)
         collision = next(
             (r for r in existing
-             if r.get('dedupe_key') == dedupe_key and r.get('status') not in _TERMINAL_STATUS),
+             if _normalize_dedupe_key(r.get('dedupe_key', '')) == dedupe_key
+             and r.get('status') not in _TERMINAL_STATUS),
             None,
         )
         if collision:
             return {'id': None, 'error': 'dedupe-collision', 'existing_id': collision['id']}
 
-        with open(str(issue_p), 'a', encoding='utf-8') as fh:
-            fh.write(json.dumps(record, ensure_ascii=False) + '\n')
+        # Q1: use _atomic_rewrite (tempfile + os.replace) instead of plain
+        # append to prevent partial-write corruption under concurrent access.
+        _atomic_rewrite(issue_p, existing + [record])
 
     return {'id': issue_id, 'created': True, 'log_file': log_file}
 
@@ -441,6 +463,12 @@ def update(
     Rejects mutations to terminal records UNLESS the call includes
     status='open' AND reopen_reason=<non-empty> in the same call.
 
+    The reopen path (transitioning a terminal record back to status='open' via
+    status='open' + reopen_reason) performs a cross-record dedupe scan against
+    other non-terminal records sharing the same dedupe_key; if any are found,
+    returns {'error': 'dedupe-collision-on-reopen', 'existing_id': ...} and
+    makes no mutation.
+
     Special handling for add_tag / remove_tag lists.
     Returns {id, updated_fields, status} on success.
 
@@ -475,6 +503,24 @@ def update(
                     'current_status': target.get('status'),
                     'message': "Reopen with status='open' and reopen_reason=<non-empty> in same call",
                 }
+            # Reopen-path dedup guard: block dual-open state if another non-terminal
+            # record with the same dedupe_key already exists (resolve→file→reopen path).
+            # Use `r is target` (object identity) to skip the record being reopened,
+            # because two records may share the same id string when created_at collides
+            # at second resolution with the same dedupe_key.
+            target_key_norm = _normalize_dedupe_key(target.get('dedupe_key', ''))
+            for r in records:
+                if r is target:
+                    continue
+                if r.get('status') in _TERMINAL_STATUS:
+                    continue
+                if _normalize_dedupe_key(r.get('dedupe_key', '')) == target_key_norm:
+                    return {
+                        'error': 'dedupe-collision-on-reopen',
+                        'existing_id': r.get('id'),
+                        'existing_status': r.get('status'),
+                        'dedupe_key': target.get('dedupe_key'),
+                    }
             # Reopen path: clear terminal fields
             target['status'] = 'open'
             target['reopen_reason'] = reopen_reason
@@ -751,6 +797,10 @@ def _cmd_update(args: argparse.Namespace, main_root: Optional[pathlib.Path] = No
         fields['reopen_reason'] = args.reopen_reason
     if args.closure_reason:
         fields['closure_reason'] = args.closure_reason
+    if args.summary:
+        fields['summary'] = args.summary
+    if args.suggested_approach:
+        fields['suggested_approach'] = args.suggested_approach
     if args.add_tag:
         fields['add_tag'] = args.add_tag
     if args.remove_tag:
@@ -794,6 +844,9 @@ def _cmd_query(args: argparse.Namespace, main_root: Optional[pathlib.Path] = Non
     limit = args.limit if args.limit and args.limit > 0 else 100
     truncated = len(records) > limit
     records = records[:limit]
+    if getattr(args, 'select_fields', None):
+        fields = [f.strip() for f in args.select_fields.split(',') if f.strip()]
+        records = [{k: r.get(k) for k in fields if k in r} for r in records]
     print(json.dumps({'records': records, 'count': len(records), 'truncated': truncated}))
     return 0
 
@@ -867,6 +920,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_update.add_argument('--severity', choices=sorted(_VALID_SEVERITY), default=None)
     p_update.add_argument('--reopen-reason', dest='reopen_reason', default=None)
     p_update.add_argument('--closure-reason', dest='closure_reason', default=None)
+    p_update.add_argument('--summary', default=None, help='Updated issue summary')
+    p_update.add_argument('--suggested-approach', dest='suggested_approach', default=None)
     p_update.add_argument('--add-tag', dest='add_tag', action='append', default=[],
                           metavar='TAG')
     p_update.add_argument('--remove-tag', dest='remove_tag', action='append', default=[],
@@ -884,6 +939,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_query.add_argument('--dedupe-key', dest='dedupe_key', default=None)
     p_query.add_argument('--origin-agent', dest='origin_agent', default=None)
     p_query.add_argument('--limit', type=int, default=100)
+    p_query.add_argument('--select-fields', dest='select_fields', default=None,
+                         help='Comma-separated field names; project records to these top-level fields before serialization.')
 
     # --- migrate ---
     p_migrate = subs.add_parser('migrate', help='Migrate pending_human_review from .study-state')

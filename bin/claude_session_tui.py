@@ -2008,6 +2008,10 @@ COMMIT_MSG = "[claude-session] TUI pre-launch commit"
 # Excluded from BOTH dirty-paths universe AND change-log iteration.
 EXCLUDE_PATHS: frozenset = frozenset({
     ".claude/knowledge-log/.change-log.jsonl",
+    # Hygiene-pipeline output; grandfathered direct-write exempt from change-log.
+    # Written by bin/claude-study.ts — no change-log entry, so H2 would always
+    # classify it as foreign-session. Exclude to suppress misleading warning.
+    ".claude/knowledge/.study-state",
 })
 
 

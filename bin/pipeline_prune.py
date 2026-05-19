@@ -64,8 +64,9 @@ def prune_inactive_pipeline_files(
     Iterates inactive_manifests; for each pipeline removes:
       - .claude/agents/<basename>   for each entry in manifest.agents
       - .claude/hooks/<basename>    for each entry in manifest.hooks (HookEntry.path)
-      - .claude/rules/<basename>    for each entry in manifest.rules
       - .claude/skills/<basename>   for each entry in manifest.skills
+      (Note: legacy manifest.rules iteration retained for back-compat with
+      historical manifests; the rules corpus directory has been eliminated.)
 
     FileNotFoundError → warn-and-continue (idempotent; safe to call twice).
     Other OS errors → warn-and-continue (never fatal to the caller).

@@ -14,6 +14,7 @@ Exports:
     load_pipeline_manifests       — parse manifests for a set of registry names
     iter_runtime_gated_hooks      — yield hook basenames where runtime_gate=True
     validate_rules_skills_exist   — check that declared rules/skills files exist
+    validate_agents_hooks_exist   — check that declared agents/hooks files exist
     validate_rubrics_exist        — check that declared rubric files exist on disk
 """
 
@@ -30,7 +31,7 @@ from typing import Iterable
 
 _REQUIRED_FIELDS = {"name", "orchestrator_prompt_block"}
 _VALID_PROMPT_BLOCK_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
-_PLANNER_SNIPPET_MAX_BYTES = 4096  # 4 KB
+_PLANNER_SNIPPET_MAX_BYTES = 8192  # 8 KB
 
 # Universal (non-pipeline-owned) agents — adding a new one here prevents a
 # malicious manifest from shadow-stubbing it.
@@ -38,6 +39,7 @@ _PLANNER_SNIPPET_MAX_BYTES = 4096  # 4 KB
 # worktree; it must NOT be added to any blanket `.claude/*.json` prune rule,
 # as that would silently break cycle-hook sentinel-TTL reads in Path C sessions.
 DEFAULT_RESERVED_AGENTS: frozenset[str] = frozenset({
+    # Original 10 universal-use agents (since R1 reserved set).
     "architect.md",
     "coherence-auditor.md",
     "diagnostician.md",
@@ -48,6 +50,20 @@ DEFAULT_RESERVED_AGENTS: frozenset[str] = frozenset({
     "solution-designer.md",
     "synthesizer.md",
     "validator.md",
+    # Subsequently added universal-use agents — not pipeline-owned.
+    # Reserved because they are universal apparatus (singleton roles, designer-family
+    # variants, harness fallbacks) and would be wrongly prunable if assigned to any pipeline.
+    "Explore.md",
+    "Plan.md",
+    "agent-content-author.md",
+    "claude-code-guide.md",
+    "cycling-promoter.md",
+    "design-planner.md",
+    "general-purpose.md",
+    "records-curator.md",
+    "statusline-setup.md",
+    "surface-gate.md",
+    "ux-aesthetic-critic.md",
 })
 
 # Universal (non-pipeline-owned) rubrics — pipeline manifests may not claim
@@ -75,6 +91,17 @@ DEFAULT_RESERVED_HOOKS: frozenset[str] = frozenset({
     "write-gate.py",            # orchestrator delegation guard
     "build-pass-gate.py",       # build-pass invariant
 })
+
+# Slugs allowed to have a manifest WITHOUT a corresponding entry in
+# bootstrap-config.json:pipelines.registry. Per the R1 web-ship operator
+# reframe, "web" is NOT a pipeline — its manifest exists only to scope the
+# three web-suite skills (detect-license, adopt-component,
+# inspire-from-component) for skill-agent-gate caller-allowlist enforcement.
+# Adding "web" to the registry would re-categorize it as a pipeline,
+# contradicting the reframe; suppressing the orphan-manifest WARNING here
+# preserves the reframe without per-session log noise.
+# See web-ship architect design §5 OQ#4 + §3 ordering #10 for endorsement.
+_REGISTRY_EXEMPT_PSEUDO_PIPELINE_SLUGS: frozenset[str] = frozenset({"web"})
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -160,6 +187,10 @@ def load_pipeline_manifests(
         for entry in root.iterdir():
             if entry.is_dir() and (entry / "manifest.json").exists():
                 if entry.name not in registry:
+                    # Path A: suppress WARNING for registry-exempt pseudo-pipelines
+                    # (e.g., "web" — operator reframe, not a real pipeline).
+                    if entry.name in _REGISTRY_EXEMPT_PSEUDO_PIPELINE_SLUGS:
+                        continue
                     print(
                         f"[pipeline_manifest] WARNING: pipeline directory "
                         f"{entry.name!r} exists but is not in registry {sorted(registry)}. "
@@ -355,7 +386,7 @@ def _parse_manifest(
             f"[a-z][a-z0-9_-]*; got {opb!r}."
         )
 
-    # planner_snippet (optional, max 4KB)
+    # planner_snippet (optional, max 8KB)
     planner_snippet: str | None = None
     if "planner_snippet" in raw:
         ps = str(raw["planner_snippet"])
@@ -461,9 +492,10 @@ def validate_rules_skills_exist(
     manifest: PipelineManifest,
     project_root: "str | pathlib.Path",
 ) -> None:
-    """Verify that every rules/skills basename declared in *manifest* resolves
-    to an existing file under project_root/.claude/rules/ or
-    project_root/.claude/skills/ respectively.
+    """Verify that every skills basename declared in *manifest* resolves
+    to an existing file under project_root/.claude/skills/.
+    (Note: legacy *manifest.rules* iteration retained for back-compat with
+    historical manifests; the rules corpus directory has been eliminated.)
 
     This function is the enforcement point for the load-time existence invariant.
     load_pipeline_manifests alone does NOT check file existence — callers in
@@ -488,6 +520,43 @@ def validate_rules_skills_exist(
             raise PipelineManifestError(
                 f"Pipeline {manifest.name!r} manifest declares skills entry "
                 f"{basename!r} but no file exists at {target}."
+            )
+
+
+def validate_agents_hooks_exist(
+    manifest: PipelineManifest,
+    worktree_root: "pathlib.Path | str",
+) -> None:
+    """Raise PipelineManifestError if any declared agent/hook basename does
+    not resolve to a real file under worktree_root.
+
+    Mirrors validate_rules_skills_exist's contract: dimension-by-dimension
+    check, single error message naming pipeline + dimension + missing basename
+    on first miss. Pipeline-name and worktree-root resolution semantics match
+    the existing validate_rules_skills_exist exactly.
+
+    Agents live at worktree_root/.claude/agents/<basename>.
+    Hooks live at worktree_root/.claude/hooks/<hook_entry.path> (mirrors the
+    prune-side path resolution in pipeline_prune.py:88, 94).
+
+    Raises:
+        PipelineManifestError: naming the manifest, field, and the missing
+            basename on the first miss.
+    """
+    root = pathlib.Path(worktree_root)
+    for basename in manifest.agents:
+        target = root / ".claude" / "agents" / basename
+        if not target.exists():
+            raise PipelineManifestError(
+                f"Pipeline {manifest.name!r} manifest declares agents entry "
+                f"{basename!r} but no file exists at {target}."
+            )
+    for hook in manifest.hooks:
+        target = root / ".claude" / "hooks" / hook.path
+        if not target.exists():
+            raise PipelineManifestError(
+                f"Pipeline {manifest.name!r} manifest declares hooks entry "
+                f"{hook.path!r} but no file exists at {target}."
             )
 
 
