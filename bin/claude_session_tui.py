@@ -2190,12 +2190,12 @@ def _h2_build_staging_list(
     """
     # Get dirty-path universe.
     diff = subprocess.run(
-        ["git", "diff", "HEAD", "--name-only"],
+        ["git", "-c", "core.quotePath=false", "diff", "HEAD", "--name-only"],
         capture_output=True, text=True, cwd=str(main_root), timeout=10,
     )
     dirty_paths = [p for p in diff.stdout.splitlines() if p.strip()]
     untracked = subprocess.run(
-        ["git", "ls-files", "-o", "--exclude-standard"],
+        ["git", "-c", "core.quotePath=false", "ls-files", "-o", "--exclude-standard"],
         capture_output=True, text=True, cwd=str(main_root), timeout=10,
     )
     dirty_paths += [p for p in untracked.stdout.splitlines() if p.strip()]
