@@ -1,6 +1,6 @@
 # Conversational Search Cost Calculator
 
-`conversational-search-cost-calculator.xlsx` is a live Excel/Google Sheets calculator for estimating the monthly AWS cost of running the Luigi's Box conversational search feature.
+`conversational-search-cost-calculator.xlsx` is a live Excel/Google Sheets calculator for estimating the monthly AWS cost of running the Luigi's Box conversational search feature. Version 2 adds firing-mode switching, M7 prompt-cache modeling, a Haiku 4.5 pre-classifier toggle, and baseline-model selection (Sonnet 4.6, GLM 4.7, GLM 4.7 Flash).
 
 ## How to open
 
@@ -10,35 +10,66 @@
 ## How to use
 
 1. Open the **Calculator** sheet.
-2. Change the **yellow cells** in the INPUTS section (rows 4-10) to match your site:
-   - **Monthly site visitors** — your expected monthly traffic.
-   - **Engagement rate (CTR, %)** — percentage of visitors who start a conversational-search session (default 5%).
-   - **Avg input tokens per LLM call** — advanced knob; default 6,000 is the measured median across a typical 3-turn conversation.
-   - **Avg output tokens per turn** — default 1,450 is the Turn-2 benchmark median.
-   - **LLM calls per turn** — default 3 is a conservative buffer over the benchmark median (~2 LLM calls/turn: 1 tool-decision call + 1 final-response call). The `search_products` invocation itself is a Luigi's Box Search API call, not a Bedrock LLM call. Set to 2 to match the documented median; cost delta is ~32%.
-   - **Guardrails enabled** — Yes/No dropdown.
-   - **Guardrail policy mix** — Content only / Content + PII / Content + PII + Grounding.
-3. Read the **green TOTAL MONTHLY COST cell** (row 40, column B).
-4. The **Sensitivity Table** at the bottom shows monthly cost across four visitor levels (10K / 100K / 500K / 1M) and four CTR levels (1% / 5% / 10% / 15%), all using your current per-conversation cost.
+2. Change the **yellow cells** in the INPUTS section to match your site. The v1 inputs (rows 4–13) are unchanged; the seven new v2 inputs are in rows 15–21.
+3. Read the **green TOTAL MONTHLY COST cell** (row 78, column B).
+4. The **Sensitivity Table** (row 80+) shows monthly cost across four visitor levels (10K / 100K / 500K / 1M) and four engagement levels (1% / 5% / 10% / 15%), all using your current per-search cost.
+5. The **Comparison Table** (row 88+) shows monthly cost for five canonical scenarios so you can see the savings stack at a glance.
 
 ## What each section does
 
 | Section | Purpose |
 |---|---|
-| INPUTS (yellow) | The variables you control |
-| LOCKED CONSTANTS (gray) | Sonnet 4.6 rate card + cache prices — do not change unless rates update |
-| DERIVED — PER CONVERSATION | Formula-computed cache, input, output, and guardrail costs per conversation |
-| MONTHLY TOTALS | Conversations/month and total monthly cost |
-| SENSITIVITY TABLE | 4x4 grid of monthly costs across visitor x CTR combinations |
+| INPUTS (yellow) | The variables you control — v1 inputs plus 7 new v2 inputs |
+| LOCKED CONSTANTS (gray) | Sonnet 4.6 + GLM 4.7 + GLM 4.7 Flash + Haiku 4.5 rate cards; do not change unless rates update |
+| BASELINE MODEL RATES | Derived rows that resolve the active input/output rates from the baseline-model dropdown |
+| DERIVED — COST PER SEARCH | Formula-computed per-search costs for Turn 1 (with all v2 toggles applied) and Turn 2+3 |
+| MONTHLY TOTALS | Searches/month × net per-search cost; green total cell is B78 |
+| SENSITIVITY TABLE | 4×4 grid of monthly costs across visitor × engagement combinations |
+| COMPARISON TABLE | Five canonical scenarios side-by-side using your current B4/B5 inputs |
+
+## What's new in v2
+
+Seven new yellow-cell inputs were added (rows 15–21):
+
+1. **Firing mode (B15)** — `eager` (default) fires Turn 1 on every search, matching v1 behavior. `deferred` fires Turn 1 only when the user clicks through (rate set in B16). The classifier is **skipped** in deferred mode — no pre-filter is needed when Turn 1 is opt-in.
+
+2. **Deferred mode click-through % (B16)** — only effective when B15=`deferred`. Default 15%. Presets: LOW=5%, MID=15%, HIGH=30%.
+
+3. **M7 cache enabled (B17)** — whether Bedrock prompt caching is used for the 4,030-token M7 composition payload (system prompt + tool schema). Default `Yes`. Must be `No` for GLM models — see caveats.
+
+4. **M7 cache hit rate % (B18)** — fraction of Turn 1 calls that hit a warm cache entry (same payload seen within the 5-minute TTL). Default 50%. Presets: LOW=20%, MID=50%, HIGH=70%. This is a **placeholder** — see caveats.
+
+5. **Classifier enabled (B19)** — whether a Haiku 4.5 pre-classifier fires before Turn 1 in eager mode. Default `No` (matches v1 behavior). The per-call cost is a derived constant (700 input + 10 output tokens at Haiku 4.5 rates = ~$0.00075/call). Skipped in deferred mode.
+
+6. **Classifier rejection rate % (B20)** — fraction of queries the classifier rejects, avoiding the Turn 1 LLM cost. Default 40%. This is a **placeholder** — see caveats.
+
+7. **Baseline model (B21)** — dropdown with three options:
+   - `Sonnet 4.6` (default) — $3.00/$15.00 per 1M input/output tokens; Bedrock prompt caching supported.
+   - `GLM 4.7` — $0.60/$2.20 per 1M input/output tokens; **no** Bedrock prompt caching.
+   - `GLM 4.7 Flash` — $0.07/$0.40 per 1M input/output tokens; **no** Bedrock prompt caching.
+
+The **Comparison Table** shows five scenarios at your current B4/B5 settings:
+
+| Row | Scenario |
+|---|---|
+| 1 | v1 baseline: eager, no cache, no classifier, Sonnet 4.6 |
+| 2 | v2 cache only: eager + cache=Yes + 50% hit rate, Sonnet 4.6 |
+| 3 | v2 cache + classifier: eager + cache + 40% rejection, Sonnet 4.6 |
+| 4 | v2 deferred + cache: deferred at B16 click-through% + cache, Sonnet 4.6 |
+| 5 | Current selected configuration (whatever is dialed in above) |
 
 ## Key caveats
 
-- **Guardrail policy mix is unknown.** The production guardrail ID is `lxv6kzi6cryg`. Its policy list is not in the codebase — check the AWS Console. Until known, budget at "Content + PII + Grounding" ($0.95/1K text units) for a safe ceiling, or "Content only" ($0.75/1K) for the floor.
-- **Cached prefix is an estimate.** The 3,500-token figure is based on a comparable Bedrock Sonnet 4.6 agent. The actual production system prompt is Langfuse-hosted and has not been directly measured.
-- **`search_products` tool-result JSON size varies.** The result payload (driven by the `size` parameter and number of matched products) dominates dynamic input tokens. Production-traffic sampling would tighten the 6,000-token input default — until then, the default is the blended-median estimate from the research artifact.
-- **LLM-calls-per-turn default is conservative.** Default 3 leaves headroom; the documented benchmark median is ~2 (tool-decision call + final-response call). Set B8=2 to match the benchmark median. The cost delta is ~32%.
+- **Guardrail policy mix is unknown.** Production guardrail ID `lxv6kzi6cryg` — check the AWS Console for its policy list. Budget at "Content + PII + Grounding" ($0.95/1K text units) for a safe ceiling, or "Content only" ($0.75/1K) for the floor.
+- **Cached prefix is an estimate.** The 4,030-token figure is based on the in-code system prompt (3,098 tokens) + search_products tool schema (932 tokens). The production system prompt is Langfuse-hosted and may differ.
+- **M7 cache hit rate is a placeholder.** The 50% default is a reasonable MID estimate (LOW=20%, HIGH=70%). Production-traffic measurement — instrumenting how often the same composition payload is seen within the 5-minute TTL — should refine this number before budgeting at scale.
+- **Classifier rejection rate is a placeholder.** The 40% default depends entirely on query mix and classifier tuning. Measure against production query logs before relying on classifier-savings estimates.
+- **GLM caching unsupported — modeling GLM disables all cache-savings rows.** When `GLM 4.7` or `GLM 4.7 Flash` is selected as the baseline model, all cache-write surcharge and cache-read savings rows zero out automatically. This is the critical cost-modeling fact: GLM models do not support Bedrock prompt caching, so there is no cache cost and no cache saving.
+- **GLM availability is NOT modeled.** This calculator does not check whether GLM 4.7 is available in your deployment region or whether procurement constraints apply. The operator must verify region availability and procurement separately before relying on GLM cost estimates.
+- **Assumes 5-minute cache TTL is hit.** If a conversation resumes after 5 minutes, the cache-write cost is charged again.
+- **LLM-calls-per-turn default is conservative.** B10=1.1 leaves headroom over the benchmark median (~1 call for the happy path, ~2 on retry). Set B10=1 to match the median; the cost delta is ~10%.
 - **Chars-per-token = 4 is approximate.** This heuristic is used only for guardrail text-unit math, not for LLM token billing. JSON/code content has a lower ratio.
-- **Assumes 5-minute cache TTL is hit.** If a conversation is interrupted and resumes after 5 minutes, the cache-write cost is charged again.
+- **Verifier LLM call not modeled.** `verify_search_intent` runs per turn as a separate Bedrock call (~670 token input). If enabled and material, add ~$0.0001/turn manually.
 
 ## Where to look in the AWS Console (guardrail precision)
 
@@ -51,5 +82,6 @@
 
 - AWS Bedrock pricing: https://aws.amazon.com/bedrock/pricing/
 - Anthropic prompt-caching docs: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+- GLM 4.7 model card (AWS Bedrock): https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-zai-glm-4-7.html
 
 For full methodology, assumption rationale, and open questions, see the **Notes** sheet inside the workbook.
