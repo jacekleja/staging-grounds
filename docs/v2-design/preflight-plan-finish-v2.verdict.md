@@ -1,0 +1,39 @@
+## Pre-Flight Gate Assessment
+
+**Artifact:** docs/v2-design/plan-finish-v2-detection-response.md
+**Generator type:** plan
+**Round:** 1 of 1
+**Verdict:** PASS
+
+### Clean Justification
+
+(a) **Declared goal vs deliverable (title/content-drift defense).** Declared goal, quoted verbatim from the plan's `## Goal (verbatim)`: "Produce an implementation plan to FINISH the v2 conversational-search detection + response-shape system. The work is substantially started on a feature branch; your job is to decompose only the REMAINING work into ordered, independently-verifiable subtasks. Output is a plan document." The deliverable that fulfils it: a 19-subtask plan (0-13 implementation/integration + 14 coherence audit + 15-19 housekeeping) with a Subtask Summary Table carrying per-subtask `Depends On`, a critical-path declaration, an Implementation Checklist (C1-C11), and Completion Criteria each "verifiable by an agent, not by assertion of quality." The body would survive being introduced to a fresh reader under its own title: it decomposes remaining work (it explicitly marks dispatcher-parsing, mode-stack LIFO, is_first_turn fix as DONE and excludes them), it is ordered (DAG + critical path), and each subtask carries build+test verification. No drift detected.
+
+(b) **[Unverified]/[Inferred] tags inspected.** Zero hits across the master plan AND all 14 subtask files (`smart_grep` for `[Unverified]`/`[Inferred]`). No load-bearing unverified claims. The plan's `## Assumptions` section is operator-decision-default-based, each tagged with the subtask that would revisit it if the default proves wrong (reversible, not blockers) — these are recorded assumptions, not unverified-tag hedges.
+
+(c) **Scope breadth diff'd against subtask scope.** The plan stays in-lane: it decomposes only REMAINING work, affirmatively carving out already-done work (dispatcher parsing §1, mode-stack LIFO §5 graph.py:402-404, is_first_turn fix §7) rather than re-planning it. No out-of-boundary concerns; no in-scope concept-id skipped (see (h)).
+
+(d) **Citations resolved — 9 traced, 9 pass, 0 fail.** `docs/v2-design/research-v2-gap-and-base.md` exists (19014 bytes). `docs/v2-design/design-v2-detection-response-shapes.md` exists and carries `first_turn_init` x21 — corroborating the plan's stale-topology hazard claim that the architect doc names the retired node. `canonical_enums.py` symbols TURN_STATE_ENVELOPE_FIELDS / UNSAFE_ROW_REQUIRED_FIELDS / CLASSIFIER_PATH_ENUM / TIER_EXTRA_STATES all resolve. `graph.py` in the checked-out submodule still defines `async def first_turn_init(` (24 refs) — this CORROBORATES rather than contradicts the plan: the submodule working tree is on the pre-rebase `feat/v2-campaign` base, and the plan's Subtask 0 rebase onto infra-sprint `main` is precisely what retires that node. `state.py` confirms `browse_intent`/`chat_takeover_trigger`/`fork_card_filter_value` are ABSENT (corroborates Subtask 1's "currently absent"). The proxy directory `conversational-search/conversational-proxy/` is absent from the working tree — NOT a citation failure: Subtask 11 explicitly flags proxy status as "unknown — proxy on main, not in agent branch ... the rebase brings the proxy in," a documented forward-reference. The hard-coded worktree-path bug in `test_tier_signal_computer.py` could not be re-traced (proxy not present pre-rebase) — recorded in scope_not_covered as an inherent-pre-rebase-forward-reference, not a defect.
+
+(e) **Canonical plan failure mode considered: vague/non-independently-verifiable decomposition + missing rollback + under-specified verification.** Evidence it is NOT present: (i) Subtask 0 carries a real, load-bearing SAFETY VALVE (`git rebase --abort` on unresolvable conflict OR any test failure, leaving original branch untouched, HALT with named conflict files) — this is the rollback path. (ii) Every implementation subtask names explicit build+test verification (named test files: test_dispatch_prefix.py, test_mode_stack_lifo.py, test_state_shape.py, test_tier_signal_computer.py parity, per-renderer shape tests) plus a per-path LLM-call-count report, with Subtask 13 turning those claims into a machine-enforced turn-1 single-call budget assertion. (iii) Subtasks are independently verifiable with crisp boundaries (one renderer-pair / one mode / one wire per subtask).
+
+(f) **Plan-type structural elements verified (Step-3 trigger file absent — checks run from inlined body contract).** Subtask Summary Table present with `#`/Title/Agent/`Depends On`/Subtask File columns; numbered subtask bodies present (0-13 as files, 14-19 inline); top-level Goal present. Subtask 0 gates everything (every implementation subtask declares Depends On including a transitive path back to 0). DAG is acyclic — traced: 0 → 1 → 2 → (3,5) → 6 → 7 → (8,9,10) → 12 → 13 → 14 → 15 → 16 → 17 → 18 → 19; 11 hangs off 1 and feeds 12; 4 hangs off {1,3} and feeds 12; no back-edge. No subtask depends on an output no prior subtask produces.
+
+(g) **T3 web-citation count: 0 (N/A).** No `[verified: web:...]` citations in the artifact; D-T3-load-bearing N/A.
+
+(h) **Plan with user-intent.md: 6 concept-ids, all covered.** Verified against `.agent_context/sessions/1780902545-2133228-f5b65e67ac75/user-intent.md` disposition tracker (t-1..t-6) cross-referenced with the plan's Concept-id Coverage Map: t-1 (mode detection) -> Subtasks 7,8,9,10; t-2 (response shapes / 4 renderers + table) -> 3,4,5,6; t-3 (minimal model calls) -> standing success-criterion on 2,3,4,5,6,7,8,9,10,12 + machine-gate in 13; t-4 (turn-1 vs turn-2+) -> 12 + 11; t-5 (correct working base / rebase) -> 0; t-6 (tier classifier) -> 2. Each id binds to >=1 subtask; none Deferred or Rejected, so no principled-vs-convenience classification needed. The plan's coverage map matches the user-intent ids exactly (no drift in id semantics).
+
+(i) Design-plan sub-units: N/A (generator_type is plan, not design-plan).
+
+**Pay-special-attention items (from delegation), all confirmed satisfied:**
+- Subtask 0 gates the rest: YES — explicit `Depends On` chains every implementation subtask back to 0, AND a real `git rebase --abort` safety valve. An implementer cannot start spine work before the rebase lands because Subtask 1 (the spine root) declares `Depends On: 0` and operates "on the rebased branch."
+- Stale-topology hazard surfaced in EVERY topology-touching subtask: YES — Coupling Analysis names it as "the single biggest risk"; subtasks 0,3,4,5,6,7,12 each carry an explicit "Wire against the POST-REBASE topology" instruction naming `handle_regular_turn`/`reset_tool_call_count` and warning against the retired `first_turn_init`. Subtask 7 additionally treats the architect doc's node names as STALE in its Knowledge block.
+- Subtask boundaries crisp + independently verifiable with build+test each: YES (see (e)(f)).
+- 6 concept-ids each mapped: YES (see (h)).
+- Submodule commit/pointer wrinkle handled: YES — Subtask 17 carries the load-bearing two-step (commit+push INSIDE submodule on the rebased branch, THEN stage the parent submodule-pointer gitlink + docs and commit+push), with "no git add -A in either repo" discipline and a witness sentinel.
+
+### Summary
+
+The plan is structurally sound, internally consistent, and adversarially robust on the dimensions a fresh-eyes gate can attack: the rebase gate is real (safety valve + dependency chain), the stale-topology hazard is surfaced in every topology-touching subtask, all 6 concept-ids map, the DAG is acyclic with no orphan dependencies, and every load-bearing citation resolves once the documented pre-rebase state of the checked-out submodule is accounted for. The proxy-absent and parity-path-bug citations are documented forward-references (resolved by the Subtask 0 rebase), not defects. PASS.
+
+Findings emission self-check: 0 flags, 0 annotation-paired, 0 consequence-named.
