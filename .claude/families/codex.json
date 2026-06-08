@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "family": "codex",
+  "cli_command": {
+    "binary": "${CODEX_BINARY:-codex}",
+    "invocation_args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c", "approval_policy=never",
+      "-c", "sandbox_mode=danger-full-access"
+    ],
+    "prompt_mode": "exec",
+    "family_disambiguator": "codex exec (stdin role=user; orchestrator-prompt delivered via -c model_instructions_file)"
+  },
+  "system_prompt_delivery_mode": {
+    "mode": "model_instructions_file_c_override",
+    "flag_template": "-c model_instructions_file={path}",
+    "notes": "LOAD-BEARING per constraints/cross-family-codex-stdin-role-user.md. Stdin assigns role=user — silent severity-loss bug if orchestrator-prompt is inlined there. Family arm MUST append this flag and MUST NOT inline the orchestrator-prompt as stdin/prompt-argument."
+  },
+  "mcp_registration_file_path": {
+    "path_template": "${HOME}/.codex/config.toml",
+    "format": "toml_array_blocks",
+    "install_script": "bin/install-codex-hooks.sh",
+    "notes": "TOML [[mcp_servers]] blocks bracketed by # CAA-CODEX-MCP:begin / # CAA-CODEX-MCP:end markers for idempotent re-runs. install-codex-hooks.sh also installs the hook shims (S12); a future bin/install-codex-mcp.sh OR a --mcp flag on the existing installer registers the context-tools MCP server. Launcher invokes the install script idempotently at pre_spawn_hook time."
+  },
+  "agent_registry_mode": {
+    "mode": "prerendered_in_orchestrator_prompt",
+    "scan_root_template": null,
+    "prerender_section": "## Agent roster (pre-rendered)",
+    "notes": "Codex has no in-process Agent-tool dispatch; the orchestrator dispatches via the dispatch_agent MCP tool. Agent descriptions are inlined into the orchestrator-prompt during Phase 1 prompt-neutralization OR via a render-time directive in orchestrator_prompt_render. Q-15 hallucination risk mitigated by JSON Schema enum on dispatch_agent.subagent_type (Decision-1 of parity analysis)."
+  },
+  "token_measurement_mechanism": {
+    "mechanism": "rollout_jsonl_token_count_events",
+    "source_path_template": "${HOME}/.codex/sessions/${CODEX_SESSION_ID}/rollout.jsonl",
+    "parse_strategy": "tail-poll rollout.jsonl; sum token_count events (codex-rs/core/src/rollout/recorder.rs schema); also accepts --json turn.completed.usage when --json mode is on",
+    "polling_interval_ms": 1000
+  },
+  "auth_lifecycle": {
+    "mode": "codex_api_key_env",
+    "required_env_vars": ["OPENAI_API_KEY"],
+    "refresh_strategy": "none_static_key",
+    "pre_launch_check": "bin/check-codex-auth.sh",
+    "notes": "Production codex deployments use API-key auth (per parity analysis Phase 3 design note). pre_launch_check verifies OPENAI_API_KEY is set and probes a single trivial codex exec to confirm reachability before worktree creation."
+  }
+}

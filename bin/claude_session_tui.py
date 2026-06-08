@@ -10,17 +10,13 @@ and stdin/stdout are both TTYs.  Falls back to line-mode when curses is unavaila
 """
 
 import contextlib
-import fcntl
 import json
 import os
 import pathlib
-import re
-import secrets
 import subprocess
 import sys
 import tempfile
 import textwrap
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -36,15 +32,10 @@ from typing import Optional, Set, Dict, List
 class LaunchDecision:
     """Returned by run_tui(); consumed by bin/claude-session dispatcher."""
 
-    kind: str  # 'exit_with_launch' | 'exit_abort' | 'exit_refused_dirty_state'
+    kind: str  # 'exit_with_launch' | 'exit_abort'
     active_pipelines: Optional[Set] = None
     resume_id: Optional[str] = None
-    # NOW means "commit AND push succeeded" (not just commit).
-    # Currently observed only by tests; the load-bearing decision lives in `kind`.
-    git_commit_performed: bool = False
     equivalent_cli: str = ""
-    push_outcome_message: str = ""           # push success SHA or failure message
-    push_conflict_path: Optional[pathlib.Path] = None  # path to diagnostic file on push failure
 
 
 # ---------------------------------------------------------------------------
@@ -145,14 +136,10 @@ class Shell(Screen):
         main_root: pathlib.Path,
         registry_empty: bool = False,
         pipeline_defaults: dict | None = None,
-        accept_dirty: bool = False,
-        worktree_session_id: str = "",
     ) -> None:
         self.main_root = main_root
         self.registry_empty = registry_empty
         self._defaults: dict = pipeline_defaults or {}
-        self.accept_dirty = accept_dirty
-        self.worktree_session_id = worktree_session_id
 
     def render(self, stdscr) -> None:
         stdscr.clear()
@@ -178,12 +165,8 @@ class Shell(Screen):
         if key == ord("l"):
             active = {k for k, v in self._defaults.items() if v}
             return ScreenTransition(
-                TransitionKind.REPLACE,
-                _GitPreLaunchPlaceholder(
-                    self.main_root, active,
-                    accept_dirty=self.accept_dirty,
-                    worktree_session_id=self.worktree_session_id,
-                ),
+                TransitionKind.EXIT_WITH_LAUNCH,
+                LaunchDecision(kind="exit_with_launch", active_pipelines=active),
             )
         if key == ord("p"):
             return ScreenTransition(TransitionKind.PUSH, _PUSH_PIPELINE_SELECT)
@@ -218,8 +201,6 @@ class PipelineSelect(Screen):
         pipeline_registry: set,
         pipeline_defaults: dict,
         pipeline_summaries: dict,
-        accept_dirty: bool = False,
-        worktree_session_id: str = "",
     ) -> None:
         self.main_root = main_root
         self.registry = sorted(pipeline_registry)
@@ -228,8 +209,6 @@ class PipelineSelect(Screen):
         self.cursor = 0
         self._status_msg = ""
         self._error: Optional[str] = None
-        self.accept_dirty = accept_dirty
-        self.worktree_session_id = worktree_session_id
 
     def render(self, stdscr) -> None:
         stdscr.clear()
@@ -309,32 +288,12 @@ class PipelineSelect(Screen):
             return NO_TRANSITION
         if key in (*enter_keys, ord("l")):
             return ScreenTransition(
-                TransitionKind.REPLACE,
-                _GitPreLaunchPlaceholder(
-                    self.main_root, set(self.active),
-                    accept_dirty=self.accept_dirty,
-                    worktree_session_id=self.worktree_session_id,
-                ),
+                TransitionKind.EXIT_WITH_LAUNCH,
+                LaunchDecision(kind="exit_with_launch", active_pipelines=set(self.active)),
             )
         if key in (27, ord("q")):
             return ScreenTransition(TransitionKind.POP)
         return NO_TRANSITION
-
-
-class _GitPreLaunchPlaceholder:
-    """Used as payload marker so run_tui() can instantiate with correct args."""
-
-    def __init__(
-        self,
-        main_root: pathlib.Path,
-        active: set,
-        accept_dirty: bool = False,
-        worktree_session_id: str = "",
-    ) -> None:
-        self.main_root = main_root
-        self.active = active
-        self.accept_dirty = accept_dirty
-        self.worktree_session_id = worktree_session_id
 
 
 # ---------------------------------------------------------------------------
@@ -555,303 +514,6 @@ class ViewStateOutput(Screen):
             return ScreenTransition(TransitionKind.POP)
         return NO_TRANSITION
 
-
-# ---------------------------------------------------------------------------
-# GitPreLaunch
-# ---------------------------------------------------------------------------
-
-
-class GitPreLaunch(Screen):
-    """Uncommitted changes on main — c/a/s/q (H2 gate)."""
-
-    def __init__(
-        self,
-        main_root: pathlib.Path,
-        active_pipelines: set,
-        accept_dirty: bool = False,
-        worktree_session_id: str = "",
-    ) -> None:
-        self.main_root = main_root
-        self.active_pipelines = active_pipelines
-        self.accept_dirty = accept_dirty
-        self.worktree_session_id = worktree_session_id
-        self.is_dirty = False
-        self.dirty_paths: list = []
-        self._error: Optional[str] = None
-        self._auto_skip = False
-        self.cursor = 0
-        self._foreign_paths: list = []
-        self._this_session_paths: list = []
-        self._foreign_count: int = 0
-        self._foreign_session_ids: list = []
-        # R2 G1 — concurrent-lock retry tracking. Both reset to (0, None) at:
-        #   (a) successful lock acquisition (push proceeds → screen exits anyway)
-        #   (b) any keypress-triggered retry where time.monotonic() - first_ts > 10.0
-        #       (window expired; treat as fresh attempt)
-        # NOT reset on `c` or `n` (those exit the screen; instance discarded).
-        self._push_lock_retry_count: int = 0
-        self._push_lock_first_failure_ts: Optional[float] = None
-
-    def on_enter(self) -> None:
-        try:
-            self.is_dirty, self.dirty_paths = _main_git_is_dirty(self.main_root)
-            if not self.is_dirty:
-                self._auto_skip = True
-                return
-            if not self.accept_dirty:
-                # Pre-compute foreign-session classification for the H2 gate prompt.
-                since_ts = _h2_compute_since_ts(self.main_root)
-                cl_path = (
-                    self.main_root / ".claude" / "knowledge-log" / ".change-log.jsonl"
-                )
-                # dirty_paths from _main_git_is_dirty is in porcelain format ("XY path").
-                raw_paths = [
-                    ln[3:] if len(ln) > 3 else ln for ln in self.dirty_paths
-                ]
-                this_session, foreign = _filter_foreign_session_files(
-                    change_log_path=cl_path,
-                    current_session_id=self.worktree_session_id,
-                    since_ts=since_ts,
-                    dirty_paths=raw_paths,
-                )
-                self._this_session_paths = this_session
-                self._foreign_paths = foreign
-                self._foreign_count = len(foreign)
-                # Collect distinct foreign session IDs for the UX prompt line.
-                if foreign:
-                    raw_cl = _h2_read_recent_writes(cl_path, since_ts)
-                    by_file: dict = {}
-                    for rec in raw_cl:
-                        f = rec.get("file")
-                        if f and f not in EXCLUDE_PATHS:
-                            prev = by_file.get(f)
-                            if prev is None or (rec.get("ts") or "") > (prev.get("ts") or ""):
-                                by_file[f] = rec
-                    fids: set = set()
-                    for fp in foreign:
-                        rec = by_file.get(fp)
-                        sid = (rec.get("session_id") or "") if rec else ""
-                        fids.add(sid if sid else "<unknown>")
-                    self._foreign_session_ids = sorted(fids)
-        except Exception as exc:  # noqa: BLE001
-            self._error = str(exc)
-            # treat as clean — auto-proceed on git failure per design
-            self._auto_skip = True
-            print(
-                f"[claude-session] git status failed: {exc}; skipping main-dirty check",
-                file=sys.stderr,
-            )
-
-    def render(self, stdscr) -> None:
-        if self._auto_skip:
-            return
-        stdscr.clear()
-        height, width = stdscr.getmaxyx()
-        self._draw_box(stdscr, height, width)
-
-        if self._error:
-            self._header(stdscr, width, "Git Pre-Launch", "[!] error")
-            self._separator(stdscr, 2, width)
-            self._safe_addstr(stdscr, 4, 2, "git status failed:")
-            self._safe_addstr(stdscr, 5, 4, self._error[:width - 6])
-            self._safe_addstr(stdscr, 7, 2, "Press c to refuse and exit, or q to abort.")
-            self._footer(stdscr, height, width, "[c] refuse and exit  |  [q] abort")
-            stdscr.refresh()
-            return
-
-        if self._foreign_count > 0:
-            # H2 foreign-session gate prompt.
-            self._header(stdscr, width, "Git Pre-Launch -- Foreign-Session Writes Detected")
-            self._separator(stdscr, 2, width)
-            self._safe_addstr(stdscr, 3, 2, "Pre-launch commit: foreign-session writes detected.")
-            sid_display = self.worktree_session_id[:20] if self.worktree_session_id else "(unknown)"
-            self._safe_addstr(stdscr, 4, 4, f"This worktree: {sid_display}")
-            # Show foreign session id(s) + count per locked UX: "<id> (<count> files)".
-            if len(self._foreign_session_ids) == 1:
-                self._safe_addstr(
-                    stdscr, 5, 4,
-                    f"Foreign sessions: {self._foreign_session_ids[0]} ({self._foreign_count} files)",
-                )
-            else:
-                fids_str = ", ".join(self._foreign_session_ids)
-                self._safe_addstr(
-                    stdscr, 5, 4,
-                    f"Foreign sessions: {fids_str} ({self._foreign_count} files)",
-                )
-            self._safe_addstr(stdscr, 7, 2, "Options:")
-            self._safe_addstr(stdscr, 8, 4, "[c] commit only this session's writes (recommended)")
-            self._safe_addstr(stdscr, 9, 4, "[a] accept dirty -- commit everything (Frankenstein)")
-            self._safe_addstr(stdscr, 10, 4, "[s] show diff of foreign-session files")
-            self._safe_addstr(stdscr, 11, 4, "[q] quit launch (resolve manually, then re-run)")
-            self._footer(stdscr, height, width, "Choice [c/a/s/q]:")
-        else:
-            # No foreign files detected — show simple commit prompt.
-            self._header(stdscr, width, "Git Pre-Launch -- Uncommitted Changes on main")
-            self._separator(stdscr, 2, width)
-
-            visible = max(1, height - 8)
-            start = max(0, self.cursor - visible + 1)
-            for i, path in enumerate(self.dirty_paths[start: start + visible]):
-                self._safe_addstr(stdscr, 3 + i, 2, path[:width - 4])
-
-            remaining = len(self.dirty_paths) - (start + visible)
-            if remaining > 0:
-                self._safe_addstr(
-                    stdscr, 3 + visible, 2,
-                    f"...{remaining} more changed files -- down-arrow to scroll",
-                )
-
-            count_row = height - 5
-            self._safe_addstr(stdscr, count_row, 2,
-                              f"{len(self.dirty_paths)} paths with uncommitted changes.")
-            self._safe_addstr(stdscr, count_row + 1, 2,
-                              "To launch, commit AND push these to origin/<branch>.")
-            self._safe_addstr(stdscr, count_row + 2, 2,
-                              "Refuse with c if you want to resolve manually.")
-            self._footer(stdscr, height, width,
-                         "[c] commit & push  |  [q] refuse - resolve yourself  |  [n] abort launch")
-        stdscr.refresh()
-
-    def handle_key(self, key: int, stdscr=None) -> ScreenTransition:
-        if self._auto_skip:
-            # Emit result immediately; no keypress needed.
-            decision = LaunchDecision(
-                kind="exit_with_launch",
-                active_pipelines=self.active_pipelines,
-            )
-            return ScreenTransition(TransitionKind.EXIT_WITH_LAUNCH, decision)
-
-        try:
-            import curses as _curses_mod
-            up_keys = (_curses_mod.KEY_UP,)
-            down_keys = (_curses_mod.KEY_DOWN,)
-        except ImportError:
-            up_keys = ()
-            down_keys = ()
-
-        if key in up_keys:
-            self.cursor = max(0, self.cursor - 1)
-            return NO_TRANSITION
-        if key in down_keys:
-            self.cursor = min(max(0, len(self.dirty_paths) - 1), self.cursor + 1)
-            return NO_TRANSITION
-
-        _LOCK_HELD_MSG = "Another claude-session TUI is mid-push. Wait or resolve manually."
-
-        # Default-on-Enter = 'c' (commit this session's writes).
-        is_enter = key in (ord("\n"), ord("\r"), 10, 13)
-        effective_c = key == ord("c") or is_enter
-
-        if effective_c or key == ord("a"):
-            # 'a' (accept dirty) requires typing the literal word "accept" to prevent
-            # muscle-memory bypass. Re-prompt if user types anything other than "accept".
-            if key == ord("a"):
-                try:
-                    import curses as _curses_a
-                    # Suspend curses briefly to get string input.
-                    with _curses_suspended(stdscr):
-                        typed = input("Type 'accept' to commit everything (Frankenstein): ").strip()
-                except (ImportError, EOFError):
-                    typed = ""
-                if typed != "accept":
-                    self._error = "[!] confirmation failed; choose c/a/s/q again"
-                    return NO_TRANSITION
-                # User confirmed "accept" — commit everything.
-                use_accept_dirty = True
-            else:
-                use_accept_dirty = self.accept_dirty
-
-            # G3 mitigation: suspend curses for commit+push duration.
-            print("[claude-session] Committing and pushing to origin "
-                  "(pre-push hooks may take up to 60s)...", file=sys.stderr)
-            sys.stderr.flush()
-            try:
-                with _curses_suspended(stdscr):
-                    success, msg, conflict_path = _run_git_commit_and_push(
-                        self.main_root,
-                        accept_dirty=use_accept_dirty,
-                        worktree_session_id=self.worktree_session_id,
-                    )
-            except KeyboardInterrupt:
-                success, msg, conflict_path = (False, "push aborted by user (Ctrl-C)", None)
-
-            # R2 G1 — handle concurrent-lock-held refusal with retry-counter.
-            if not success and msg == _LOCK_HELD_MSG:
-                now = time.monotonic()
-                if self._push_lock_first_failure_ts is not None \
-                        and (now - self._push_lock_first_failure_ts) > 10.0:
-                    self._push_lock_retry_count = 0
-                    self._push_lock_first_failure_ts = None
-                if self._push_lock_first_failure_ts is None:
-                    self._push_lock_first_failure_ts = now
-                self._push_lock_retry_count += 1
-                if self._push_lock_retry_count >= 3:
-                    decision = LaunchDecision(
-                        kind="exit_refused_dirty_state",
-                        active_pipelines=self.active_pipelines,
-                        git_commit_performed=False,
-                        push_outcome_message=(
-                            f"Refused: 3 lock-acquisition failures within 10s. "
-                            f"Another claude-session TUI is holding the push lock. "
-                            f"Resolve manually before re-launching."
-                        ),
-                    )
-                    return ScreenTransition(TransitionKind.EXIT_ABORT, decision)
-                self._error = (
-                    f"{_LOCK_HELD_MSG} "
-                    f"(retry {self._push_lock_retry_count}/3 within 10s window)"
-                )
-                return NO_TRANSITION
-
-            if success:
-                decision = LaunchDecision(
-                    kind="exit_with_launch",
-                    active_pipelines=self.active_pipelines,
-                    git_commit_performed=True,
-                    push_outcome_message=msg,
-                )
-                return ScreenTransition(TransitionKind.EXIT_WITH_LAUNCH, decision)
-            # Failure path.
-            self._error = msg + (f"\n  See: {conflict_path}" if conflict_path else "")
-            decision = LaunchDecision(
-                kind="exit_refused_dirty_state",
-                active_pipelines=self.active_pipelines,
-                git_commit_performed=False,
-                push_outcome_message=msg,
-                push_conflict_path=conflict_path,
-            )
-            return ScreenTransition(TransitionKind.EXIT_ABORT, decision)
-            # NOTE: TransitionKind.EXIT_ABORT carries decision.kind='exit_refused_dirty_state'.
-
-        if key == ord("s"):
-            # Show diff of foreign-session files, then re-render.
-            foreign_paths = self._foreign_paths or []
-            if foreign_paths:
-                try:
-                    with _curses_suspended(stdscr):
-                        subprocess.run(
-                            ["git", "diff", "HEAD", "--"] + foreign_paths,
-                            cwd=str(self.main_root),
-                        )
-                        input("\nPress Enter to continue...")
-                except Exception:  # noqa: BLE001
-                    pass
-            return NO_TRANSITION
-
-        if key == ord("q"):
-            return ScreenTransition(
-                TransitionKind.EXIT_ABORT,
-                LaunchDecision(kind="exit_abort"),
-            )
-
-        # 'n' preserved for backward compat (maps to quit).
-        if key == ord("n"):
-            return ScreenTransition(
-                TransitionKind.EXIT_ABORT,
-                LaunchDecision(kind="exit_abort"),
-            )
-
-        return NO_TRANSITION
 
 
 # ---------------------------------------------------------------------------
@@ -1992,433 +1654,29 @@ def _main_git_is_dirty(main_root: pathlib.Path) -> tuple:
         return False, []
 
 
-COMMIT_MSG = "[claude-session] TUI pre-launch commit"
-# Co-pointer: COMMIT_MSG is coupled to the --grep pattern in _h2_compute_since_ts.
-# If this string is renamed, update the git log --grep pattern in lockstep.
+def _emit_dirty_main_advisory(main_root: pathlib.Path) -> None:
+    """Emit stderr advisory when main repo is dirty, before worktree creation.
 
-
-# ---------------------------------------------------------------------------
-# H2: session-attributed staging filter (Frankenstein-commit closure)
-# ---------------------------------------------------------------------------
-
-# Paths whose own writes are the attribution source for the gate.
-# Including these in the candidate set is incoherent: every entry in
-# .change-log.jsonl was written by some prior session, so the file itself
-# ALWAYS appears foreign, inflating foreign_count by 1 on every TUI fire.
-# Excluded from BOTH dirty-paths universe AND change-log iteration.
-EXCLUDE_PATHS: frozenset = frozenset({
-    ".claude/knowledge-log/.change-log.jsonl",
-    # Hygiene-pipeline output; grandfathered direct-write exempt from change-log.
-    # Written by bin/claude-study.ts — no change-log entry, so H2 would always
-    # classify it as foreign-session. Exclude to suppress misleading warning.
-    ".claude/knowledge/.study-state",
-})
-
-
-def _h2_parse_iso(ts_str: str):
-    """Parse ISO-8601 string to datetime (UTC-aware). Returns None on failure."""
-    try:
-        # Handle 'Z' suffix and numeric offsets.
-        s = ts_str.strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        return datetime.fromisoformat(s)
-    except (ValueError, AttributeError):
-        return None
-
-
-def _h2_read_recent_writes(
-    change_log_path: pathlib.Path,
-    since_ts_iso: str,
-) -> list:
-    """Return change-log entries with ts >= since_ts_iso.
-
-    Pure-Python JSONL tail read. NO MCP dependency (TUI fires before any
-    Claude session is up). Schema fields per knowledge.ts:buildChangeLogEntry:
-    {ts, session_id, file, section, operation, status, actor, ...}.
+    Format: total count + first 10 porcelain paths (plus remainder trailer when
+    N > 10) + fixed ownership message. No operator action required.
     """
-    if not change_log_path.exists():
-        return []
-    entries = []
-    since_dt = _h2_parse_iso(since_ts_iso) if since_ts_iso else None
-    try:
-        with open(change_log_path, "r", encoding="utf-8") as fh:
-            for raw in fh:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    rec = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue  # skip malformed lines (best-effort read)
-                if since_dt is not None:
-                    ts_str = rec.get("ts") or ""
-                    if ts_str:
-                        entry_dt = _h2_parse_iso(ts_str)
-                        if entry_dt is not None and entry_dt < since_dt:
-                            continue
-                entries.append(rec)
-    except OSError:
-        return []  # unreadable → safe-default (no attribution data)
-    return entries
-
-
-def _h2_compute_since_ts(main_root: pathlib.Path) -> str:
-    """B3 with B1 fallback. B3: last TUI pre-launch commit. B1: HEAD commit.
-
-    Co-pointer: the --grep pattern below is coupled to COMMIT_MSG constant above.
-    If COMMIT_MSG is renamed, this pattern MUST change in lockstep.
-    """
-    # B3: last successful TUI pre-launch commit.
-    p = subprocess.run(
-        ["git", "log", "-1", "--format=%cI",
-         "--grep=^\\[claude-session\\] TUI pre-launch commit$"],
-        capture_output=True, text=True, cwd=str(main_root), timeout=10,
+    is_dirty, dirty_paths = _main_git_is_dirty(main_root)
+    if not is_dirty:
+        return
+    n = len(dirty_paths)
+    shown = dirty_paths[:10]
+    path_lines = ["  " + p for p in shown]
+    if n > 10:
+        path_lines.append(f"  ... ({n - 10} more)")
+    path_block = "\n".join(path_lines)
+    print(
+        f"[claude-session] main repo has {n} uncommitted path(s):\n"
+        f"{path_block}\n"
+        f"The new worktree starts from origin/<default> and ignores them; "
+        f"they are owned by the sessions that wrote them and will be committed "
+        f"at those sessions' HK-3 time.",
+        file=sys.stderr,
     )
-    ts = p.stdout.strip()
-    if ts:
-        return ts
-    # B1 fallback: last commit on HEAD.
-    p2 = subprocess.run(
-        ["git", "log", "-1", "--format=%cI"],
-        capture_output=True, text=True, cwd=str(main_root), timeout=10,
-    )
-    return p2.stdout.strip()  # may be empty (fresh repo) → reader treats as no filter
-
-
-def _filter_foreign_session_files(
-    change_log_path: pathlib.Path,
-    current_session_id: str,
-    since_ts: str,
-    dirty_paths: list,
-) -> "tuple[list[str], list[str]]":
-    """Classify dirty_paths into (this_session_paths, foreign_session_paths).
-
-    Hybrid policy (Option C):
-      - Symlinked subtrees (.claude/knowledge/, .claude/knowledge-log/,
-        .claude/mcp/): positive attribution via change-log. Stage ONLY paths
-        whose latest change-log entry in the since window has
-        session_id == current_session_id OR is a real-orphan (D-stage class).
-      - Worktree-local subtrees (everything else): stage unconditionally.
-
-    EXCLUDE_PATHS are stripped from both dirty_paths and change-log iteration.
-
-    Entry-level filters (before bucketing):
-      - D-skip: session_id starting with 'test-' → skip path
-      - D-skip: operation == 'sidecar-unreadable' → skip path
-      - D-skip: file in EXCLUDE_PATHS → skip path
-
-    Returns (this_session_paths, foreign_session_paths).
-    foreign_session_paths includes orphan/unknown-session paths in symlinked subtrees.
-    """
-    # Strip EXCLUDE_PATHS from candidate universe.
-    dirty_paths = [p for p in dirty_paths if p not in EXCLUDE_PATHS]
-
-    raw_entries = _h2_read_recent_writes(change_log_path, since_ts)
-
-    # Entry-level filter: drop D-skip class before bucketing.
-    entries = []
-    skip_paths: set = set()
-    for rec in raw_entries:
-        sid = rec.get("session_id") or ""
-        op = rec.get("operation") or ""
-        f = rec.get("file") or ""
-        if sid.startswith("test-"):
-            if f:
-                skip_paths.add(f)
-            continue
-        if op == "sidecar-unreadable":
-            if f:
-                skip_paths.add(f)
-            continue
-        if f in EXCLUDE_PATHS:
-            skip_paths.add(f)
-            continue
-        entries.append(rec)
-
-    # Bucket entries by file (latest entry wins per file).
-    by_file: dict = {}
-    for rec in entries:
-        f = rec.get("file")
-        if not f:
-            continue
-        prev = by_file.get(f)
-        if prev is None or (rec.get("ts") or "") > (prev.get("ts") or ""):
-            by_file[f] = rec
-
-    SYMLINKED_PREFIXES = (
-        ".claude/knowledge/", ".claude/knowledge-log/", ".claude/mcp/",
-    )
-
-    this_session: list = []
-    foreign: list = []
-    for path in dirty_paths:
-        if path in skip_paths:
-            continue
-        is_symlinked = any(path.startswith(pfx) for pfx in SYMLINKED_PREFIXES)
-        if not is_symlinked:
-            # Worktree-local: stage unconditionally as this-session.
-            this_session.append(path)
-            continue
-        # Symlinked subtree: positive attribution.
-        rec = by_file.get(path)
-        if rec is None:
-            # No change-log entry within window → orphan (D-stage real).
-            # Treat as foreign so the gate can surface it to the user.
-            foreign.append(path)
-            continue
-        sid = rec.get("session_id") or ""
-        if sid == current_session_id:
-            this_session.append(path)
-        else:
-            # Foreign session (including null-sid legacy entries and real orphans).
-            foreign.append(path)
-
-    return this_session, foreign
-
-
-def _h2_build_staging_list(
-    main_root: pathlib.Path,
-    worktree_session_id: str,
-    *,
-    accept_dirty: bool,
-) -> "tuple[int, list[str], list[str]]":
-    """Build the staged-path list using H2 hybrid attribution.
-
-    Returns (foreign_count, paths_to_stage, orphan_source_session_ids).
-    When accept_dirty=True, stages all paths (legacy behavior).
-    """
-    # Get dirty-path universe.
-    diff = subprocess.run(
-        ["git", "-c", "core.quotePath=false", "diff", "HEAD", "--name-only"],
-        capture_output=True, text=True, cwd=str(main_root), timeout=10,
-    )
-    dirty_paths = [p for p in diff.stdout.splitlines() if p.strip()]
-    untracked = subprocess.run(
-        ["git", "-c", "core.quotePath=false", "ls-files", "-o", "--exclude-standard"],
-        capture_output=True, text=True, cwd=str(main_root), timeout=10,
-    )
-    dirty_paths += [p for p in untracked.stdout.splitlines() if p.strip()]
-    dirty_paths = [p for p in dirty_paths if p not in EXCLUDE_PATHS]
-
-    if accept_dirty:
-        return len(dirty_paths), dirty_paths, []
-
-    since_ts = _h2_compute_since_ts(main_root)
-    cl_path = main_root / ".claude" / "knowledge-log" / ".change-log.jsonl"
-
-    this_session, foreign = _filter_foreign_session_files(
-        change_log_path=cl_path,
-        current_session_id=worktree_session_id,
-        since_ts=since_ts,
-        dirty_paths=dirty_paths,
-    )
-
-    foreign_count = len(foreign)
-    # Collect session IDs from foreign entries for the orphan-sources list.
-    raw_entries = _h2_read_recent_writes(cl_path, since_ts)
-    by_file: dict = {}
-    for rec in raw_entries:
-        f = rec.get("file")
-        if f:
-            prev = by_file.get(f)
-            if prev is None or (rec.get("ts") or "") > (prev.get("ts") or ""):
-                by_file[f] = rec
-    orphan_sources: set = set()
-    for path in foreign:
-        rec = by_file.get(path)
-        if rec is not None:
-            sid = rec.get("session_id") or "<null-sid>"
-            orphan_sources.add(sid)
-        else:
-            orphan_sources.add("<unknown-pre-boundary>")
-
-    # Default: commit only this session's paths.
-    paths_to_stage = list(this_session)
-    return foreign_count, paths_to_stage, sorted(orphan_sources)
-
-
-def _extract_pushed_sha(porcelain_stdout: str) -> Optional[str]:
-    """Parse `git push --porcelain` output and return the new (pushed) SHA.
-
-    Per git-push(1) porcelain format, non-comment ref-update lines have the form:
-      <flag>TAB<from>:<to>TAB<summary>
-    where <summary> is `<old_sha>..<new_sha>` for fast-forward or
-    `<old_sha>...<new_sha>` for forced push.  We extract the new SHA (right side).
-    Returns None on any parse failure; caller substitutes '<unknown>'.
-    """
-    sha_re = re.compile(r"[0-9a-f]{40}\.\.\.?([0-9a-f]{40})")
-    for line in porcelain_stdout.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped in ("Done", "Everything up-to-date"):
-            continue
-        m = sha_re.search(stripped)
-        if m:
-            return m.group(1)
-    return None
-
-
-def _write_tui_push_conflict(
-    main_root: pathlib.Path,
-    *,
-    branch: str,
-    push_cmd,
-    stderr: str,
-    returncode: int,
-) -> pathlib.Path:
-    """Write a push-conflict diagnostic file to <main_root>/.agent_context/.
-
-    Returns the path to the written file.  Per invariant 11 of
-    docs/path-c-invariants.md, this file MUST be written BEFORE
-    the error is escalated to the caller; the file path is the load-bearing signal.
-    """
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%S") + secrets.token_hex(2)
-    filename = f"tui-push-conflict-{ts}.md"
-    agent_context_dir = main_root / ".agent_context"
-    agent_context_dir.mkdir(parents=True, exist_ok=True)
-    conflict_path = agent_context_dir / filename
-
-    # Capture HEAD and remote SHAs AFTER failed push for diagnostic fidelity.
-    def _rev_parse(ref: str) -> str:
-        try:
-            r = subprocess.run(
-                ["git", "rev-parse", ref],
-                capture_output=True, text=True, cwd=str(main_root), timeout=5,
-            )
-            return r.stdout.strip() or "<unknown>"
-        except Exception:  # noqa: BLE001
-            return "<unknown>"
-
-    head_sha = _rev_parse("HEAD")
-    remote_sha = _rev_parse(f"origin/{branch}")
-    push_cmd_str = " ".join(str(c) for c in push_cmd) if push_cmd else "<unknown>"
-
-    content = (
-        f"# TUI Pre-Launch Push Conflict\n"
-        f"- **Timestamp**: {datetime.now(timezone.utc).isoformat()}\n"
-        f"- **Push command**: {push_cmd_str}\n"
-        f"- **Returncode**: {returncode}\n"
-        f"- **Stderr (full)**:\n  {stderr}\n"
-        f"- **HEAD SHA**: {head_sha}\n"
-        f"- **Remote branch HEAD SHA**: {remote_sha}\n"
-        f"- **Resolution commands**:\n"
-        f"  git fetch origin {branch} && git rebase origin/{branch} && "
-        f"git push origin HEAD:{branch}\n"
-        f"- **Note**: Automated rebase NOT performed at TUI time. "
-        f"Resolve manually before re-launching.\n"
-        f"# TODO: consider adding .agent_context/tui-push-conflict-*.md to .gitignore "
-        f"as a follow-on if these files accumulate noise.\n"
-    )
-    conflict_path.write_text(content, encoding="utf-8")
-    return conflict_path
-
-
-def _run_git_commit_and_push(
-    main_root: pathlib.Path,
-    *,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
-) -> "tuple[bool, str, Optional[pathlib.Path]]":
-    """Run git add (targeted), git commit, git push.
-
-    H2: replaces blanket `git add -A` with session-attributed staging.
-    When accept_dirty=True, stages all dirty paths (legacy behavior).
-
-    Returns (success, message, conflict_file_path):
-      On success: (True, "pushed <sha12> to origin/<branch>", None)
-      On commit failure: (False, "<stderr>", None)
-      On push failure: (False, "<push_stderr>", <path-to-conflict-file>)
-    """
-    lock_path = main_root / ".agent_context" / "worktrees" / ".tui-push.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_fh = open(str(lock_path), "a")  # O_CREAT | O_RDWR via 'a' mode  # noqa: WPS515
-    try:
-        try:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lock_fh.close()
-            return (False, "Another claude-session TUI is mid-push. Wait or resolve manually.", None)
-
-        # Step 1a: build session-attributed path list (H2 gate).
-        foreign_count, paths_to_stage, _orphan_sources = _h2_build_staging_list(
-            main_root, worktree_session_id, accept_dirty=accept_dirty,
-        )
-        if accept_dirty:
-            all_count = len(paths_to_stage)
-            print(
-                f"[claude-session] --accept-dirty: skipping foreign-session check; "
-                f"committing {all_count} files ({foreign_count} from foreign sessions).",
-                file=sys.stderr,
-            )
-        elif foreign_count > 0:
-            print(
-                f"[claude-session] H2: staging {len(paths_to_stage)} files "
-                f"(skipping {foreign_count} foreign-session files); "
-                f"orphan sources: {_orphan_sources}",
-                file=sys.stderr,
-            )
-
-        if not paths_to_stage:
-            return (True, "no paths to stage; working tree clean", None)
-
-        # Step 1b: git add -- <paths> (NEVER `git add -A`).
-        add_result = subprocess.run(
-            ["git", "add", "--"] + paths_to_stage,
-            capture_output=True, text=True, cwd=str(main_root), timeout=30,
-        )
-        if add_result.returncode != 0:
-            return (False, "git add failed: " + add_result.stderr, None)
-
-        # Step 2: git commit with Session-Id: trailer.
-        commit_cmd = ["git", "commit", "-m", COMMIT_MSG]
-        if worktree_session_id:
-            commit_cmd += ["--trailer", f"Session-Id: {worktree_session_id}"]
-        commit_result = subprocess.run(
-            commit_cmd,
-            capture_output=True, text=True, cwd=str(main_root), timeout=30,
-        )
-        if commit_result.returncode != 0:
-            return (False, "git commit failed: " + commit_result.stderr, None)
-
-        # Step 3: resolve upstream branch (invariant 11 exact form — ${BRANCH:-master}).
-        branch_proc = subprocess.run(
-            ["bash", "-c",
-             "BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null"
-             " | sed 's|^origin/||'); echo ${BRANCH:-master}"],
-            capture_output=True, text=True, cwd=str(main_root), timeout=10,
-        )
-        branch = branch_proc.stdout.strip() or "master"
-
-        # Step 4: git push --porcelain origin HEAD:<branch>
-        push_proc = subprocess.run(
-            ["git", "push", "--porcelain", "origin", f"HEAD:{branch}"],
-            capture_output=True, text=True, cwd=str(main_root),
-            timeout=int(os.environ.get("CLAUDE_SESSION_TUI_PUSH_TIMEOUT", "60")),
-        )
-
-        if push_proc.returncode == 0:
-            pushed_sha = _extract_pushed_sha(push_proc.stdout) or "<unknown>"
-            return (True, f"pushed {pushed_sha[:12]} to origin/{branch}", None)
-
-        # Push failure → write diagnostic file then return refused.
-        conflict_path = _write_tui_push_conflict(
-            main_root,
-            branch=branch,
-            push_cmd=push_proc.args,
-            stderr=push_proc.stderr or "(no stderr)",
-            returncode=push_proc.returncode,
-        )
-        # Truncate push stderr at 4KB for PIPE_BUF safety (invariant 8);
-        # full stderr is preserved verbatim in the conflict file.
-        stderr_msg = (push_proc.stderr or "git push failed")[:4096]
-        return (False, stderr_msg, conflict_path)
-
-    finally:
-        try:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
-        except Exception:  # noqa: BLE001
-            pass
-        lock_fh.close()
 
 
 def _save_defaults_to_bootstrap_config(
@@ -2472,8 +1730,6 @@ def _run_line_mode_fallback(
     pipeline_registry: set,
     pipeline_defaults: dict,
     pipeline_summaries: dict,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
 ) -> LaunchDecision:
     """Minimal numbered-menu fallback when curses is unavailable."""
     print("[claude-session] TUI: curses unavailable; falling back to line-mode prompts",
@@ -2497,7 +1753,6 @@ def _run_line_mode_fallback(
         if choice == "1":
             decision = _line_mode_pipeline_select(
                 main_root, registry, active, pipeline_summaries,
-                accept_dirty=accept_dirty, worktree_session_id=worktree_session_id,
             )
             if decision is not None:
                 return decision
@@ -2515,8 +1770,6 @@ def _line_mode_pipeline_select(
     registry: list,
     active: set,
     summaries: dict,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
 ) -> Optional[LaunchDecision]:
     if not registry:
         print("No pipelines registered. Run 'caa-setup pipelines' or use --raw.")
@@ -2533,12 +1786,6 @@ def _line_mode_pipeline_select(
         if cmd.lower() == "q":
             return None
         if cmd.lower() == "l":
-            is_dirty, paths = _main_git_is_dirty(main_root)
-            if is_dirty:
-                return _line_mode_git_pre_launch(
-                    main_root, set(active), paths,
-                    accept_dirty=accept_dirty, worktree_session_id=worktree_session_id,
-                )
             return LaunchDecision(kind="exit_with_launch", active_pipelines=set(active))
         if cmd == "S":
             try:
@@ -2592,179 +1839,6 @@ def _line_mode_worktree_manage(main_root: pathlib.Path) -> Optional[LaunchDecisi
     return None
 
 
-def _line_mode_git_pre_launch(
-    main_root: pathlib.Path,
-    active_pipelines: set,
-    dirty_paths: list,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
-) -> LaunchDecision:
-    # Compute foreign-session classification for H2 gate.
-    since_ts = _h2_compute_since_ts(main_root)
-    cl_path = main_root / ".claude" / "knowledge-log" / ".change-log.jsonl"
-    # dirty_paths here is porcelain format ("XY path"); extract the path part.
-    raw_paths = [ln[3:] if len(ln) > 3 else ln for ln in dirty_paths]
-    this_session_paths, foreign_paths = _filter_foreign_session_files(
-        change_log_path=cl_path,
-        current_session_id=worktree_session_id,
-        since_ts=since_ts,
-        dirty_paths=raw_paths,
-    )
-    foreign_count = len(foreign_paths)
-    # Collect distinct foreign session IDs for the UX prompt line.
-    foreign_session_ids: list = []
-    if foreign_paths:
-        raw_cl = _h2_read_recent_writes(cl_path, since_ts)
-        by_file_lm: dict = {}
-        for rec in raw_cl:
-            f = rec.get("file")
-            if f and f not in EXCLUDE_PATHS:
-                prev = by_file_lm.get(f)
-                if prev is None or (rec.get("ts") or "") > (prev.get("ts") or ""):
-                    by_file_lm[f] = rec
-        fids: set = set()
-        for fp in foreign_paths:
-            rec = by_file_lm.get(fp)
-            sid = (rec.get("session_id") or "") if rec else ""
-            fids.add(sid if sid else "<unknown>")
-        foreign_session_ids = sorted(fids)
-
-    print(f"\n{len(dirty_paths)} uncommitted changes on main:")
-    for p in dirty_paths[:20]:
-        print(f"  {p}")
-    if len(dirty_paths) > 20:
-        print(f"  ...{len(dirty_paths) - 20} more")
-
-    if accept_dirty:
-        # --accept-dirty: skip gate, stage everything.
-        success, msg, conflict_path = _run_git_commit_and_push(
-            main_root, accept_dirty=True, worktree_session_id=worktree_session_id,
-        )
-        print(f"[claude-session] {msg}", file=sys.stderr)
-        if success:
-            return LaunchDecision(
-                kind="exit_with_launch",
-                active_pipelines=active_pipelines,
-                git_commit_performed=True,
-                push_outcome_message=msg,
-            )
-        if conflict_path:
-            print(f"[claude-session] Push diagnostic: {conflict_path}", file=sys.stderr)
-        return LaunchDecision(
-            kind="exit_refused_dirty_state",
-            active_pipelines=active_pipelines,
-            push_outcome_message=msg,
-            push_conflict_path=conflict_path,
-        )
-
-    # H2 gate: show foreign-session info if present.
-    if foreign_count > 0:
-        print("\nPre-launch commit: foreign-session writes detected.")
-        sid_display = worktree_session_id[:20] if worktree_session_id else "(unknown)"
-        print(f"  This worktree: {sid_display}")
-        if len(foreign_session_ids) == 1:
-            print(f"  Foreign sessions: {foreign_session_ids[0]} ({foreign_count} files)")
-        else:
-            fids_str = ", ".join(foreign_session_ids)
-            print(f"  Foreign sessions: {fids_str} ({foreign_count} files)")
-        print("")
-        print("Options:")
-        print("  [c] commit only this session's writes (recommended)")
-        print("  [a] accept dirty -- commit everything (Frankenstein)")
-        print("  [s] show diff of foreign-session files")
-        print("  [q] quit launch (resolve manually, then re-run)")
-        while True:
-            cmd = input("Choice [c/a/s/q]: ").strip().lower()
-            if cmd == "" or cmd == "c":
-                # Default-on-Enter = c.
-                success, msg, conflict_path = _run_git_commit_and_push(
-                    main_root, accept_dirty=False, worktree_session_id=worktree_session_id,
-                )
-                print(f"[claude-session] {msg}", file=sys.stderr)
-                if success:
-                    return LaunchDecision(
-                        kind="exit_with_launch",
-                        active_pipelines=active_pipelines,
-                        git_commit_performed=True,
-                        push_outcome_message=msg,
-                    )
-                if conflict_path:
-                    print(f"[claude-session] Push diagnostic: {conflict_path}", file=sys.stderr)
-                return LaunchDecision(
-                    kind="exit_refused_dirty_state",
-                    active_pipelines=active_pipelines,
-                    push_outcome_message=msg,
-                    push_conflict_path=conflict_path,
-                )
-            if cmd == "a":
-                typed = input("Type 'accept' to commit everything (Frankenstein): ").strip()
-                if typed != "accept":
-                    print("[!] confirmation failed; choose c/a/s/q again")
-                    continue
-                success, msg, conflict_path = _run_git_commit_and_push(
-                    main_root, accept_dirty=True, worktree_session_id=worktree_session_id,
-                )
-                print(f"[claude-session] {msg}", file=sys.stderr)
-                if success:
-                    return LaunchDecision(
-                        kind="exit_with_launch",
-                        active_pipelines=active_pipelines,
-                        git_commit_performed=True,
-                        push_outcome_message=msg,
-                    )
-                if conflict_path:
-                    print(f"[claude-session] Push diagnostic: {conflict_path}", file=sys.stderr)
-                return LaunchDecision(
-                    kind="exit_refused_dirty_state",
-                    active_pipelines=active_pipelines,
-                    push_outcome_message=msg,
-                    push_conflict_path=conflict_path,
-                )
-            if cmd == "s":
-                if foreign_paths:
-                    subprocess.run(
-                        ["git", "diff", "HEAD", "--"] + foreign_paths,
-                        cwd=str(main_root),
-                    )
-                continue
-            if cmd == "q":
-                return LaunchDecision(kind="exit_abort")
-            # Unknown choice → re-prompt.
-            print("[!] Unknown choice; choose c/a/s/q")
-
-    # No foreign writes: simple commit prompt.
-    print("Choose: c (commit & push), q (refuse - exit), n (abort)")
-    cmd = input("> ").strip().lower()
-    if cmd == "c" or cmd == "":
-        success, msg, conflict_path = _run_git_commit_and_push(
-            main_root, accept_dirty=False, worktree_session_id=worktree_session_id,
-        )
-        print(f"[claude-session] {msg}", file=sys.stderr)
-        if success:
-            return LaunchDecision(
-                kind="exit_with_launch",
-                active_pipelines=active_pipelines,
-                git_commit_performed=True,
-                push_outcome_message=msg,
-            )
-        if conflict_path:
-            print(f"[claude-session] Push diagnostic: {conflict_path}", file=sys.stderr)
-        return LaunchDecision(
-            kind="exit_refused_dirty_state",
-            active_pipelines=active_pipelines,
-            push_outcome_message=msg,
-            push_conflict_path=conflict_path,
-        )
-    if cmd == "q":
-        print("[claude-session] Launch aborted. Resolve uncommitted changes on main yourself.",
-              file=sys.stderr)
-        return LaunchDecision(kind="exit_refused_dirty_state", active_pipelines=active_pipelines)
-    if cmd == "n":
-        return LaunchDecision(kind="exit_abort")
-    print("[claude-session] Unknown choice; refusing launch.", file=sys.stderr)
-    return LaunchDecision(kind="exit_refused_dirty_state", active_pipelines=active_pipelines)
-
-
 # ---------------------------------------------------------------------------
 # Curses dispatcher
 # ---------------------------------------------------------------------------
@@ -2775,8 +1849,6 @@ def _run_curses(
     pipeline_registry: set,
     pipeline_defaults: dict,
     pipeline_summaries: dict,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
 ) -> LaunchDecision:
     """Run the curses event loop.  Returns LaunchDecision on any exit path."""
     import curses
@@ -2792,20 +1864,12 @@ def _run_curses(
 
     pipeline_select_factory = lambda: PipelineSelect(  # noqa: E731
         main_root, pipeline_registry, pipeline_defaults, pipeline_summaries,
-        accept_dirty=accept_dirty, worktree_session_id=worktree_session_id,
     )
     worktree_manage_factory = lambda: WorktreeManage(main_root)  # noqa: E731
     settings_factory = lambda: SettingsInspector(main_root)  # noqa: E731
 
-    # Sentinel: GitPreLaunch resolved to clean-skip; REPLACE handler exits directly.
-    _CLEAN_LAUNCH = object()
-
     def _resolve_screen(s):
-        """Expand sentinel objects to real Screen instances.
-
-        For _GitPreLaunchPlaceholder: if main is clean, returns _CLEAN_LAUNCH
-        sentinel so the REPLACE handler exits with launch without a keypress.
-        """
+        """Expand sentinel objects to real Screen instances."""
         if s is _PUSH_PIPELINE_SELECT:
             return pipeline_select_factory()
         if s is _PUSH_WORKTREE_MANAGE:
@@ -2814,19 +1878,6 @@ def _run_curses(
             return settings_factory()
         if s is _PUSH_ISSUE_QUEUE:
             return IssueQueue(main_root)
-        if isinstance(s, _GitPreLaunchPlaceholder):
-            is_dirty, _ = _main_git_is_dirty(s.main_root)
-            if not is_dirty:
-                # Clean repo: skip GitPreLaunch screen entirely; no keypress needed.
-                return _CLEAN_LAUNCH, LaunchDecision(
-                    kind="exit_with_launch",
-                    active_pipelines=s.active,
-                )
-            return GitPreLaunch(
-                s.main_root, s.active,
-                accept_dirty=s.accept_dirty,
-                worktree_session_id=s.worktree_session_id,
-            )
         return s
 
     def _main(stdscr):
@@ -2841,8 +1892,6 @@ def _run_curses(
             main_root,
             registry_empty=registry_empty,
             pipeline_defaults=pipeline_defaults,
-            accept_dirty=accept_dirty,
-            worktree_session_id=worktree_session_id,
         )
         stack: list = [landing]
 
@@ -2863,8 +1912,6 @@ def _run_curses(
                 continue
             if transition.kind == TransitionKind.PUSH:
                 resolved = _resolve_screen(transition.payload)
-                if isinstance(resolved, tuple) and resolved[0] is _CLEAN_LAUNCH:
-                    return resolved[1]
                 screen = resolved
                 screen.on_enter()
                 stack.append(screen)
@@ -2874,9 +1921,6 @@ def _run_curses(
                 continue
             if transition.kind == TransitionKind.REPLACE:
                 resolved = _resolve_screen(transition.payload)
-                # Clean-launch sentinel: skip GitPreLaunch, exit immediately.
-                if isinstance(resolved, tuple) and resolved[0] is _CLEAN_LAUNCH:
-                    return resolved[1]
                 screen = resolved
                 screen.on_enter()
                 stack[-1] = screen
@@ -2888,10 +1932,6 @@ def _run_curses(
                 # WorktreeManage returns a LaunchDecision directly in payload
                 return LaunchDecision(kind="exit_with_launch")
             if transition.kind == TransitionKind.EXIT_ABORT:
-                # NOTE: TransitionKind.EXIT_ABORT covers BOTH user-abort and
-                # refused-dirty-state. Discriminate via LaunchDecision.kind ==
-                # 'exit_refused_dirty_state' before adding per-TransitionKind logic.
-                # See WR-PHASE2-PREVENT axis 2.
                 payload = transition.payload
                 if isinstance(payload, LaunchDecision):
                     return payload
@@ -2914,8 +1954,6 @@ def run_tui(
     pipeline_registry: set,
     pipeline_defaults: dict,
     pipeline_summaries: dict,
-    accept_dirty: bool = False,
-    worktree_session_id: str = "",
 ) -> LaunchDecision:
     """Launch the interactive TUI and return the user's launch decision.
 
@@ -2924,24 +1962,18 @@ def run_tui(
         pipeline_registry: set of pipeline names from bootstrap-config.json.
         pipeline_defaults: dict[name, bool] default-enabled state.
         pipeline_summaries: dict[name, str] human-readable summary per pipeline.
-        accept_dirty: If True, bypass the H2 foreign-session confirmation gate.
-        worktree_session_id: Pre-generated session ID for this launch (used in
-            Session-Id: trailer and H2 attribution). Empty string = unknown.
 
     Returns:
-        LaunchDecision with kind 'exit_with_launch', 'exit_abort', or
-        'exit_refused_dirty_state'.
+        LaunchDecision with kind 'exit_with_launch' or 'exit_abort'.
         Caller (bin/claude-session) translates into session-spawn variables.
     """
     if not _can_use_curses():
         decision = _run_line_mode_fallback(
             main_root, pipeline_registry, pipeline_defaults, pipeline_summaries,
-            accept_dirty=accept_dirty, worktree_session_id=worktree_session_id,
         )
     else:
         decision = _run_curses(
             main_root, pipeline_registry, pipeline_defaults, pipeline_summaries,
-            accept_dirty=accept_dirty, worktree_session_id=worktree_session_id,
         )
 
     decision.equivalent_cli = _build_equivalent_cli(decision, pipeline_defaults)
@@ -2951,15 +1983,5 @@ def run_tui(
             f"[claude-session] TUI choice -> equivalent CLI: {decision.equivalent_cli}",
             file=sys.stderr,
         )
-        if decision.push_outcome_message:
-            print(f"[claude-session] {decision.push_outcome_message}", file=sys.stderr)
-    elif decision.kind == "exit_refused_dirty_state":
-        print("[claude-session] Launch refused: dirty main + push not completed.",
-              file=sys.stderr)
-        if decision.push_outcome_message:
-            print(f"[claude-session]   {decision.push_outcome_message}", file=sys.stderr)
-        if decision.push_conflict_path:
-            print(f"[claude-session]   Diagnostic: {decision.push_conflict_path}",
-                  file=sys.stderr)
 
     return decision

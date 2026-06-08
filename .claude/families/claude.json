@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "family": "claude",
+  "cli_command": {
+    "binary": "${CLAUDE_BINARY:-claude}",
+    "invocation_args": [
+      "--model", "${CAA_MODEL:-sonnet}",
+      "--effort", "${CAA_EFFORT:-default}",
+      "--dangerously-skip-permissions",
+      "--setting-sources", "project,local",
+      "--strict-mcp-config",
+      "--disallowedTools", "TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode,EnterWorktree,ExitWorktree,Monitor,NotebookEdit,PushNotification,RemoteTrigger,ScheduleWakeup,AskUserQuestion,Read,Write,Edit,Glob,Grep"
+    ],
+    "prompt_mode": "print",
+    "family_disambiguator": "claude (TTY-passthrough Popen; positional prompt for episode 2+)"
+  },
+  "system_prompt_delivery_mode": {
+    "mode": "cli_flag_file",
+    "flag_template": "--system-prompt-file {path}",
+    "notes": "Claude platform-managed system-priority delivery. Episode-2+ runbook attached via second --append-system-prompt-file."
+  },
+  "mcp_registration_file_path": {
+    "path_template": "${WORKTREE}/.mcp.json",
+    "format": "json_object",
+    "install_script": null,
+    "notes": "Worktree-local .mcp.json composed by shared launcher from main .mcp.json + active pipeline mcp_servers. Falls back to ${MAIN_ROOT}/.mcp.json when no pipeline contributes MCP servers."
+  },
+  "agent_registry_mode": {
+    "mode": "filesystem_scan_claude_native",
+    "scan_root_template": "${WORKTREE}/.claude/agents/",
+    "prerender_section": null,
+    "notes": "Claude Code auto-discovers agents via 3s scan at startup. Pruned subtree per pipeline manifest."
+  },
+  "token_measurement_mechanism": {
+    "mechanism": "transcript_jsonl_poll",
+    "source_path_template": "${HOME}/.claude/projects/${PROJECT_SLUG}/*.jsonl",
+    "parse_strategy": "tail-poll the active session's JSONL; sum input+output token counters per turn entry",
+    "polling_interval_ms": 1000
+  },
+  "auth_lifecycle": {
+    "mode": "claude_oauth_platform_managed",
+    "required_env_vars": [],
+    "refresh_strategy": "platform_managed",
+    "pre_launch_check": null,
+    "notes": "OAuth managed by Claude Code itself; launcher takes no action."
+  }
+}

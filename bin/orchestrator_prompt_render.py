@@ -5,23 +5,108 @@ Strips inactive <!-- IF name -->...<!-- /IF name --> blocks from any source
 file matching the grammar and writes the rendered result to an output file.
 """
 # Conditional content in source files is always-inline and gated by
-# registry-named pipelines. Add a new pipeline only via the 2-step recipe in
-# .claude/knowledge/meta/prompt-design.md § Compose-Time Layering Markup
-# (Adding a new pipeline).
+# registry-named pipelines or reserved non-pipeline activation flags. Add a new
+# pipeline only via the 2-step recipe in .claude/knowledge/meta/prompt-design.md
+# § Compose-Time Layering Markup (Adding a new pipeline).
 
 import re
 import sys
 
-_OPEN_RE = re.compile(r"^\s*<!--\s*IF\s+([a-z][a-z0-9_-]*)\s*-->\s*$")
-_CLOSE_RE = re.compile(r"^\s*<!--\s*/IF\s+([a-z][a-z0-9_-]*)\s*-->\s*$")
-_ANY_MARKER_RE = re.compile(r"<!--\s*/?IF\s+[a-z][a-z0-9_-]*\s*-->")
+_MARKER_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_OPEN_RE = re.compile(r"^\s*<!--\s*IF\s+(\S+)\s*-->\s*$")
+_CLOSE_RE = re.compile(r"^\s*<!--\s*/IF\s+(\S+)\s*-->\s*$")
+_ANY_MARKER_RE = re.compile(r"<!--\s*/?IF\b.*?-->")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 _MIN_OUTPUT_CHARS = 500
+_RENDER_FAILURE_MARKERS = ("AUTO-INJECT FAILED", "DEGRADATION:")
 
-# Scope flags are session-scope activation switches (root vs child orchestrator mode).
+# Scope flags are session-scope activation switches (root vs child orchestrator mode)
+# and family flags (claude | codex | gemini) for family-conditional content in
+# dispatch-l2/SKILL.md (axis-7, CL-3).
 # They are NOT pipeline names and MUST NOT appear in bootstrap-config.json:pipelines.registry.
 # See design-SUBORCH-v6-total.md §6.2-6.4 (namespace-separation invariant).
-_SCOPE_FLAGS = frozenset({"root", "child"})
+_SCOPE_FLAGS = frozenset({"root", "child", "claude", "codex", "gemini"})
+_FEATURE_FLAGS = frozenset({"ux_aesthetic_loop"})
+
+_RENDER_INTEGRITY_SENTINELS = {
+    "ROUTING_TABLE": ("<!-- ROUTING_TABLE_START -->", "<!-- ROUTING_TABLE_END -->"),
+    "WORKTREE_MAP": ("<!-- WORKTREE_MAP_START -->", "<!-- WORKTREE_MAP_END -->"),
+    "PIPELINES": ("<!-- PIPELINES_START -->", "<!-- PIPELINES_END -->"),
+}
+
+
+def _degradation_message(block_name: str) -> str:
+    if block_name not in _RENDER_INTEGRITY_SENTINELS:
+        raise ValueError(f"unknown render-integrity block: {block_name}")
+    return (
+        f"DEGRADATION: {block_name} failed to render — surface to operator "
+        f"immediately, halt {block_name}-dependent work."
+    )
+
+
+def _render_integrity_block(
+    block_name: str,
+    resolved_content: str,
+    *,
+    failed: bool,
+) -> str:
+    """Return a sentinel-bounded slot carrying resolved content or degradation."""
+    try:
+        sentinel_start, sentinel_end = _RENDER_INTEGRITY_SENTINELS[block_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown render-integrity block: {block_name}") from exc
+
+    payload = _degradation_message(block_name) if failed else resolved_content.strip("\n")
+    if sentinel_start in payload or sentinel_end in payload:
+        raise ValueError(
+            f"{block_name} payload contains its reserved sentinel literal."
+        )
+    return sentinel_start + "\n" + payload + "\n" + sentinel_end + "\n"
+
+
+def _render_integrity_failed(payload: str) -> bool:
+    stripped = payload.strip()
+    return not stripped or any(marker in stripped for marker in _RENDER_FAILURE_MARKERS)
+
+
+def _normalize_render_integrity_block(text: str, block_name: str) -> str:
+    sentinel_start, sentinel_end = _RENDER_INTEGRITY_SENTINELS[block_name]
+    output_parts: list[str] = []
+    cursor = 0
+
+    while True:
+        start_idx = text.find(sentinel_start, cursor)
+        if start_idx == -1:
+            output_parts.append(text[cursor:])
+            return "".join(output_parts)
+
+        end_idx = text.find(sentinel_end, start_idx + len(sentinel_start))
+        if end_idx == -1:
+            raise ValueError(
+                f"render-integrity block {block_name} has START without matching END"
+            )
+
+        payload_start = start_idx + len(sentinel_start)
+        payload = text[payload_start:end_idx]
+        region_end = end_idx + len(sentinel_end)
+        if region_end < len(text) and text[region_end] == "\n":
+            region_end += 1
+
+        output_parts.append(text[cursor:start_idx])
+        output_parts.append(
+            _render_integrity_block(
+                block_name,
+                payload,
+                failed=_render_integrity_failed(payload),
+            )
+        )
+        cursor = region_end
+
+
+def _normalize_render_integrity_blocks(text: str) -> str:
+    for block_name in _RENDER_INTEGRITY_SENTINELS:
+        text = _normalize_render_integrity_block(text, block_name)
+    return text
 
 
 def _classify(name: str, active_flags: set, registry: set, lineno: int) -> tuple:
@@ -31,11 +116,18 @@ def _classify(name: str, active_flags: set, registry: set, lineno: int) -> tuple
     pipeline-conditional-content-discipline.md. The fail-open behavior was
     replaced with sys.exit(1) so that CI catches registry mismatches pre-merge.
 
-    Scope flags (root, child) are resolved first via _SCOPE_FLAGS before the
-    registry lookup — they are valid IF-block names but are NOT pipelines.
+    Scope and feature flags are resolved first before the registry lookup —
+    they are valid IF-block names but are NOT pipelines.
     """
-    # Scope-flag branch: resolved by active_flags membership, not registry.
-    if name in _SCOPE_FLAGS:
+    if not _MARKER_NAME_RE.match(name):
+        print(
+            f"ERROR: marker name '{name}' on line {lineno} is malformed;"
+            " expected [a-z][a-z0-9_-]*.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # Reserved non-pipeline flags are resolved by active_flags membership.
+    if name in _SCOPE_FLAGS or name in _FEATURE_FLAGS:
         return (True, False) if name in active_flags else (False, False)
     if name not in registry:
         print(
@@ -47,20 +139,17 @@ def _classify(name: str, active_flags: set, registry: set, lineno: int) -> tuple
     return (True, False) if name in active_flags else (False, False)
 
 
-def render(
-    template_path: str,
+def render_string(
+    template_text: str,
     active_flags: set,
     registry: set,
-    output_path: str,
 ) -> str:
-    """Strip inactive <!-- IF name -->...<!-- /IF name --> blocks from any source file.
+    """Strip inactive <!-- IF name -->...<!-- /IF name --> blocks from template_text.
 
-    Returns the rendered content as a string (also written to output_path).
-    The string-return supports the argv-fallback path: if Claude Code removes
-    --append-system-prompt-file, the caller can invoke
-    subprocess.Popen(['claude', '--append-system-prompt', rendered, ...]).
-    List-form argv avoids shell-quoting concerns; an 8K-token prompt is ~32 KB
-    UTF-8, well under Linux ARG_MAX (>=128 KB on every supported kernel).
+    Pure string-in / string-out function — performs zero file I/O.  The
+    caller is responsible for reading the template and writing the output.
+
+    Returns the rendered content as a string.
 
     Raises:
         ValueError: nested IF block, unclosed block, stray close marker,
@@ -68,8 +157,9 @@ def render(
     """
     active_flags, registry = set(active_flags), set(registry)  # defensive cast
 
-    with open(template_path, encoding="utf-8") as fh:
-        lines = [ln.rstrip("\n") for ln in fh]
+    # splitlines(keepends=True) + rstrip("\n") matches open()-iteration behaviour:
+    # each yielded line has its trailing \n stripped, preserving mid-line content.
+    lines = [ln.rstrip("\n") for ln in template_text.splitlines(keepends=True)]
 
     state = "OUT"
     current_name: str | None = None
@@ -125,6 +215,8 @@ def render(
         )
 
     rendered = _BLANK_RUN_RE.sub("\n\n", "\n".join(output_lines))
+    rendered = _normalize_render_integrity_blocks(rendered)
+    rendered = _BLANK_RUN_RE.sub("\n\n", rendered)
 
     if len(rendered.strip()) < _MIN_OUTPUT_CHARS:
         raise ValueError(
@@ -132,7 +224,30 @@ def render(
             f" (< {_MIN_OUTPUT_CHARS}); catastrophic truncation suspected"
         )
 
-    # Write only on success — a ValueError above leaves output_path untouched.
+    return rendered
+
+
+def render(
+    template_path: str,
+    active_flags: set,
+    registry: set,
+    output_path: str,
+) -> str:
+    """Thin file-I/O wrapper around render_string.
+
+    Reads template_path, calls render_string, writes result to output_path.
+    Returns the rendered content as a string.
+
+    The string-return supports the argv-fallback path: if Claude Code removes
+    --append-system-prompt-file, the caller can invoke
+    subprocess.Popen(['claude', '--append-system-prompt', rendered, ...]).
+    List-form argv avoids shell-quoting concerns; an 8K-token prompt is ~32 KB
+    UTF-8, well under Linux ARG_MAX (>=128 KB on every supported kernel).
+    """
+    with open(template_path, encoding="utf-8") as fh:
+        template_text = fh.read()
+    rendered = render_string(template_text, active_flags, registry)
+    # Write only on success — a ValueError in render_string leaves output_path untouched.
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write(rendered)
     return rendered

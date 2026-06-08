@@ -34,6 +34,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, Optional
 
+from path_c_shared_state_guard import (
+    PathCSharedStateError,
+    ensure_parent_for_path,
+    guard_roots,
+)
+
 try:
     import yaml
     _YAML_AVAILABLE = True
@@ -89,6 +95,19 @@ def _lock_path(main_root: pathlib.Path) -> pathlib.Path:
     return main_root / '.agent_context' / 'issues.jsonl.lock'
 
 
+def _worktree_root() -> pathlib.Path:
+    return pathlib.Path(os.environ.get('CAA_WORKTREE_ROOT') or os.getcwd())
+
+
+def _guard_issue_paths(main_root: pathlib.Path, usage: str) -> None:
+    guard_roots(
+        ['.agent_context/issues.jsonl', '.agent_context/issues.jsonl.lock'],
+        main_root=main_root,
+        worktree_root=_worktree_root(),
+        usage=usage,  # type: ignore[arg-type]
+    )
+
+
 def _resolve_main_root() -> pathlib.Path:
     """Resolve the main repo root for storage.
 
@@ -137,7 +156,8 @@ def _open_locked(main_root: pathlib.Path, exclusive: bool) -> Iterator[pathlib.P
     """
     issue_p = _issue_path(main_root)
     lock_p = _lock_path(main_root)
-    issue_p.parent.mkdir(parents=True, exist_ok=True)
+    _guard_issue_paths(main_root, 'mutate' if exclusive else 'read')
+    ensure_parent_for_path(lock_p, main_root=main_root, worktree_root=_worktree_root())
     lk_fd = os.open(str(lock_p), os.O_CREAT | os.O_RDWR, 0o644)
     lk_fh = os.fdopen(lk_fd, 'r+')
     try:
@@ -221,7 +241,7 @@ def _apply_filter(records: list, filt: Optional[dict]) -> list:
 
     Supported filter keys: id (str), status (str or list), severity (str or list),
     tags (str or list, any-match), since (ISO-8601 str), dedupe_key (str),
-    origin_agent (str).
+    origin_agent (str), hygiene_run_id (str — matches origin.hygiene_run_id).
     """
     if not filt:
         return records
@@ -262,6 +282,14 @@ def _apply_filter(records: list, filt: Optional[dict]) -> list:
     if origin_agent_filter:
         result = [r for r in result
                   if r.get('origin', {}).get('agent') == origin_agent_filter]
+
+    hygiene_run_id_filter = filt.get('hygiene_run_id')
+    if hygiene_run_id_filter:
+        # Scope to issues filed within a specific hygiene run — used by the
+        # exit-code path in claude-study.ts so exit-2 fires only on *new* issues,
+        # not the entire open-issue backlog.
+        result = [r for r in result
+                  if r.get('origin', {}).get('hygiene_run_id') == hygiene_run_id_filter]
 
     return result
 
@@ -829,6 +857,8 @@ def _cmd_query(args: argparse.Namespace, main_root: Optional[pathlib.Path] = Non
     else:
         filt['status'] = 'open'
 
+    if getattr(args, 'id', None):
+        filt['id'] = args.id
     if args.severity:
         filt['severity'] = args.severity
     if args.tag:
@@ -839,6 +869,8 @@ def _cmd_query(args: argparse.Namespace, main_root: Optional[pathlib.Path] = Non
         filt['dedupe_key'] = args.dedupe_key
     if args.origin_agent:
         filt['origin_agent'] = args.origin_agent
+    if getattr(args, 'hygiene_run_id', None):
+        filt['hygiene_run_id'] = args.hygiene_run_id
 
     records = query(filt=filt if filt else None, main_root=main_root)
     limit = args.limit if args.limit and args.limit > 0 else 100
@@ -929,6 +961,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # --- query ---
     p_query = subs.add_parser('query', help='Query issues')
+    p_query.add_argument('--id', default=None, help='Filter by exact issue ID')
     p_query.add_argument('--status', choices=sorted(_VALID_STATUS), default=None)
     p_query.add_argument('--all', action='store_true', default=False,
                          help='Return all statuses (overrides --status)')
@@ -938,6 +971,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_query.add_argument('--since', default=None, help='ISO-8601 lower bound on created_at')
     p_query.add_argument('--dedupe-key', dest='dedupe_key', default=None)
     p_query.add_argument('--origin-agent', dest='origin_agent', default=None)
+    p_query.add_argument('--hygiene-run-id', dest='hygiene_run_id', default=None,
+                         help='Filter to issues filed during a specific hygiene run (matches origin.hygiene_run_id).')
     p_query.add_argument('--limit', type=int, default=100)
     p_query.add_argument('--select-fields', dest='select_fields', default=None,
                          help='Comma-separated field names; project records to these top-level fields before serialization.')
@@ -978,7 +1013,17 @@ def main() -> int:
         print(json.dumps({'error': f'unknown subcommand: {args.subcommand}'}), file=sys.stderr)
         return 1
 
-    return handler(args, main_root)
+    try:
+        usage = 'read'
+        if args.subcommand in {'file', 'resolve', 'update'}:
+            usage = 'mutate'
+        elif args.subcommand == 'migrate' and getattr(args, 'apply', False):
+            usage = 'mutate'
+        _guard_issue_paths(main_root, usage)
+        return handler(args, main_root)
+    except PathCSharedStateError as exc:
+        print(json.dumps({'error': str(exc), 'error_code': exc.code, 'detail': exc.to_dict()}), file=sys.stderr)
+        return 2
 
 
 if __name__ == '__main__':

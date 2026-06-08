@@ -64,13 +64,18 @@ DEFAULT_RESERVED_AGENTS: frozenset[str] = frozenset({
     "statusline-setup.md",
     "surface-gate.md",
     "ux-aesthetic-critic.md",
+    # Utility harness agents — universal apparatus, not owned by any pipeline.
+    # Added in iss_3ed70ed1ae22 remediation (R2 subtask-9).
+    "counter-agent.md",
+    "echo-agent.md",
+    "joiner-agent.md",
+    "launcher-remediator.md",
 })
 
 # Universal (non-pipeline-owned) rubrics — pipeline manifests may not claim
 # these. They live in .claude/rubrics/ and are never pruned.
 DEFAULT_RESERVED_RUBRICS: frozenset[str] = frozenset({
     "code-vs-spec.json",
-    "code-review.json",
     "generator-artifact.json",
     "connections-graph.json",
     "cross-knowledge-coherence.json",
@@ -91,17 +96,6 @@ DEFAULT_RESERVED_HOOKS: frozenset[str] = frozenset({
     "write-gate.py",            # orchestrator delegation guard
     "build-pass-gate.py",       # build-pass invariant
 })
-
-# Slugs allowed to have a manifest WITHOUT a corresponding entry in
-# bootstrap-config.json:pipelines.registry. Per the R1 web-ship operator
-# reframe, "web" is NOT a pipeline — its manifest exists only to scope the
-# three web-suite skills (detect-license, adopt-component,
-# inspire-from-component) for skill-agent-gate caller-allowlist enforcement.
-# Adding "web" to the registry would re-categorize it as a pipeline,
-# contradicting the reframe; suppressing the orphan-manifest WARNING here
-# preserves the reframe without per-session log noise.
-# See web-ship architect design §5 OQ#4 + §3 ordering #10 for endorsement.
-_REGISTRY_EXEMPT_PSEUDO_PIPELINE_SLUGS: frozenset[str] = frozenset({"web"})
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -187,10 +181,6 @@ def load_pipeline_manifests(
         for entry in root.iterdir():
             if entry.is_dir() and (entry / "manifest.json").exists():
                 if entry.name not in registry:
-                    # Path A: suppress WARNING for registry-exempt pseudo-pipelines
-                    # (e.g., "web" — operator reframe, not a real pipeline).
-                    if entry.name in _REGISTRY_EXEMPT_PSEUDO_PIPELINE_SLUGS:
-                        continue
                     print(
                         f"[pipeline_manifest] WARNING: pipeline directory "
                         f"{entry.name!r} exists but is not in registry {sorted(registry)}. "

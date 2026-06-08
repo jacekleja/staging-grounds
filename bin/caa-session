@@ -1,0 +1,1324 @@
+#!/usr/bin/env python3
+# caa-session — cross-family CAA session launcher (S16).
+#
+# Thin (~200 LOC) CLI entry point. Parses --family claude|codex|gemini plus all existing
+# claude-session flags. Family resolution: explicit --family wins; otherwise inferred from
+# child-profile.json when --child-sidecar-dir is set (exits 2 if manifest absent/malformed);
+# falls back to 'claude' for direct (non-child-sidecar) sessions. Loads the named family.json,
+# resolves pipelines, creates the worktree, then delegates to bin/caa/launcher.run_session().
+#
+# Usage: caa-session [--family claude|codex|gemini] [OPTIONS] [initial_prompt...]
+#
+# All existing claude-session flags are accepted; --family is the new addition.
+# Operators who use `bin/claude-session` continue to work unchanged via the shim.
+#
+# File-modification order (S16 design): this file is step 4 (after caa/__init__.py,
+# family_descriptor.py, launcher.py, and family_arm_claude.py).
+
+import atexit
+import json
+import os
+import pathlib
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+# bin/ on sys.path so session_registry, orchestrator_prompt_render, etc. resolve.
+_BIN_DIR = pathlib.Path(__file__).parent.resolve()
+if str(_BIN_DIR) not in sys.path:
+    sys.path.insert(0, str(_BIN_DIR))
+
+from caa.family_descriptor import FamilyDescriptor, FamilyDescriptorError, load_family
+from caa.launcher import CliOptions, PipelineFlags, run_session
+from caa_child_profile import _load_child_profile_pipelines
+
+
+# ── Globals (for signal handler) ─────────────────────────────────────────────
+_caa_worktree_path = None
+_caa_crashed = False
+
+
+def _signal_handler(signum, frame):
+    # Mirror claude-session's signal handler: interrupt the process cleanly.
+    sys.exit(0)
+
+
+# ── Budget enforcement helpers (axis-9) ────────────────────────────────────────
+
+def _parse_budget_env() -> dict:
+    """Parse CAA_BUDGET_TOKENS and CAA_WALL_DEADLINE_EPOCH from environment.
+
+    Returns {'tokens_budget': int|None, 'wall_deadline_epoch': float|None}.
+    Logs a warning on invalid values; returns None fields rather than exiting —
+    the watchdog is best-effort and must not prevent the session from launching.
+    """
+    tokens_budget = None
+    wall_deadline_epoch = None
+
+    raw_tokens = os.environ.get("CAA_BUDGET_TOKENS", "")
+    if raw_tokens:
+        try:
+            tokens_budget = int(raw_tokens)
+        except ValueError:
+            print(
+                f"[caa-session] WARNING: CAA_BUDGET_TOKENS={raw_tokens!r} is not an "
+                "integer; budget token ceiling will not be recorded",
+                file=sys.stderr,
+            )
+
+    raw_deadline = os.environ.get("CAA_WALL_DEADLINE_EPOCH", "")
+    if raw_deadline:
+        try:
+            wall_deadline_epoch = float(raw_deadline)
+        except ValueError:
+            print(
+                f"[caa-session] WARNING: CAA_WALL_DEADLINE_EPOCH={raw_deadline!r} is "
+                "not a float; wall-deadline watchdog will not start",
+                file=sys.stderr,
+            )
+
+    return {"tokens_budget": tokens_budget, "wall_deadline_epoch": wall_deadline_epoch}
+
+
+def _start_wall_deadline_watchdog(
+    deadline_epoch: float | None,
+    grace_s: int = 30,
+) -> None:
+    """Start a background daemon thread that enforces CAA_WALL_DEADLINE_EPOCH.
+
+    Issues SIGTERM to the launcher process at deadline, then SIGKILL after
+    grace_s seconds if the process is still running.  Targeting the launcher
+    pid is sufficient because run_session() blocks the main thread; the
+    session subprocess shares the same process lifetime.
+
+    No-op when deadline_epoch is None.
+    """
+    if deadline_epoch is None:
+        return
+
+    pid = os.getpid()
+
+    def _watchdog() -> None:
+        remaining = deadline_epoch - time.time()
+        if remaining > 0:
+            time.sleep(remaining)
+        print(
+            f"[caa-session] wall-deadline reached; sending SIGTERM to pid={pid}",
+            file=sys.stderr,
+        )
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return  # Process already gone — nothing to do
+        time.sleep(grace_s)
+        print(
+            f"[caa-session] grace period ({grace_s}s) expired; sending SIGKILL to "
+            f"pid={pid}",
+            file=sys.stderr,
+        )
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return  # Process already gone — nothing to do
+
+    t = threading.Thread(target=_watchdog, daemon=True, name="caa-budget-watchdog")
+    t.start()
+
+
+def _terminate_suborch_watchdog(proc):
+    """atexit handler: terminate the watchdog subprocess, then SIGKILL after grace-timeout.
+
+    Idempotent — safe to call on an already-exited proc (poll() early-return) and safe
+    to call a second time after explicit teardown (covers atexit-after-terminate races).
+    """
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _spawn_and_register_suborch_watchdog(session_dir, main_root):
+    """Spawn the suborch-watchdog and register atexit cleanup.
+
+    Family-shared helper — called once from each _dispatch_* helper.  No-op when
+    CAA_CHILD_SIDECAR_DIR is absent (the spawn helper handles the gate itself).
+    Lifecycle ownership is here in caa-session per the run_session convention comment
+    ("Signal and atexit setup are owned by the calling claude-session / caa-session").
+    """
+    from caa.launcher import _spawn_suborch_watchdog
+    proc = _spawn_suborch_watchdog(session_dir, main_root)
+    if proc is not None:
+        atexit.register(_terminate_suborch_watchdog, proc)
+    return proc
+
+
+# ── Pre-spawn capability probe helpers ───────────────────────────────────────
+
+def _load_required_capabilities(child_sidecar_dir) -> list:
+    """Load required_capabilities list from {child_sidecar_dir}/child-profile.json.
+
+    Returns [] when child_sidecar_dir is None/absent, file is missing, field is
+    absent/malformed, or any read error occurs.  Never raises.
+    """
+    if not child_sidecar_dir:
+        return []
+    try:
+        profile_path = os.path.join(child_sidecar_dir, 'child-profile.json')
+        with open(profile_path, encoding='utf-8') as _f:
+            data = json.load(_f)
+        caps = data.get('required_capabilities', [])
+        if not isinstance(caps, list):
+            return []
+        return [c for c in caps if isinstance(c, str)]
+    except Exception:
+        return []
+
+
+def _load_child_max_episodes(child_sidecar_dir) -> int:
+    """Read lifecycle.max_episodes from {child_sidecar_dir}/child-profile.json.
+
+    Returns 1 on: sidecar_dir is None/absent, file missing, parse error, field
+    absent/malformed, or any read failure.  Never raises.
+    Used by _dispatch_codex() to decide whether to set CAA_CODEX_LIFECYCLE=multi-episode.
+    """
+    if not child_sidecar_dir:
+        return 1
+    try:
+        profile_path = os.path.join(child_sidecar_dir, 'child-profile.json')
+        with open(profile_path, encoding='utf-8') as _f:
+            data = json.load(_f)
+        lifecycle = data.get('lifecycle', {})
+        if not isinstance(lifecycle, dict):
+            return 1
+        max_ep = lifecycle.get('max_episodes', 1)
+        if not isinstance(max_ep, int) or max_ep < 1:
+            return 1
+        return max_ep
+    except Exception:
+        return 1
+
+
+def _infer_family_from_manifest(child_sidecar_dir: str) -> str:
+    """Read 'family' from {child_sidecar_dir}/child-profile.json and return it.
+
+    Exits with code 2 on absent manifest, JSON parse error, missing family field,
+    or invalid family value — same error class as an explicit bad --family value.
+    Never silently defaults; callers must handle the non-return case only via
+    sys.exit side-effect.
+    """
+    profile_path = os.path.join(child_sidecar_dir, 'child-profile.json')
+    try:
+        with open(profile_path, encoding='utf-8') as _f:
+            data = json.load(_f)
+    except FileNotFoundError:
+        print(
+            f'caa-session: --family not specified and child-profile.json not found at '
+            f'{profile_path!r}; pass --family <claude|codex|gemini> or provide a valid '
+            f'child-profile.json',
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except (json.JSONDecodeError, ValueError) as _e:
+        print(
+            f'caa-session: --family not specified and child-profile.json is not valid JSON '
+            f'at {profile_path!r}: {_e}; pass --family <claude|codex|gemini> or fix the '
+            f'manifest',
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    family = data.get('family')
+    if not family:
+        print(
+            f'caa-session: --family not specified and child-profile.json at {profile_path!r} '
+            f'is missing the "family" field; pass --family <claude|codex|gemini> or fix the '
+            f'manifest',
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if family not in ('claude', 'codex', 'gemini'):
+        print(
+            f'caa-session: --family not specified and child-profile.json "family" value '
+            f'{family!r} at {profile_path!r} is not in {{claude, codex, gemini}}; '
+            f'pass --family <claude|codex|gemini> or fix the manifest',
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return family
+
+
+def _resolve_family(args: dict) -> str:
+    """Apply family-resolution order and set args['family'] in-place.
+
+    Resolution order: explicit --family wins; otherwise infer from child-profile.json
+    when --child-sidecar-dir is set (exits 2 if manifest absent/malformed); fall back
+    to 'claude' for direct (non-child-sidecar) sessions.
+    """
+    if not args['family_explicit']:
+        if args['child_sidecar_dir']:
+            args['family'] = _infer_family_from_manifest(args['child_sidecar_dir'])
+        else:
+            args['family'] = 'claude'  # back-compat: direct non-child session
+    return args['family']
+
+
+# ── Helper: resolve project root ──────────────────────────────────────────────
+
+def _resolve_project_root() -> pathlib.Path:
+    # Path C invariant 4: main_root = dirname(git rev-parse --git-common-dir).
+    # Identical to bin/claude-session._resolve_project_root; using --show-toplevel
+    # would mis-resolve to the worktree path when invoked from inside an L1 worktree
+    # and would break .agent_context/worktrees/.registry.json lookup
+    # (registry lives only at main-repo root; an empty stub may exist at the
+    # worktree path and read_registry treats it as an empty dict).
+    try:
+        out = subprocess.run(
+            ['git', 'rev-parse', '--git-common-dir'],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f'caa-session: failed to resolve project root: {e.stderr}', file=sys.stderr)
+        sys.exit(1)
+    return pathlib.Path(out).resolve().parent
+
+
+# ── Flag parsing ─────────────────────────────────────────────────────────────
+
+def _parse_args(argv: list) -> dict:
+    """Parse caa-session argv. Returns a dict of parsed flags + residual."""
+    family = None         # resolved in main(): explicit --family wins, else inferred from manifest
+    family_explicit = False
+    pipeline_names = []
+    pipelines_csv = None
+    no_pipeline_names = []
+    disable_pipeline_csv = None
+    keep_worktree = False
+    no_fetch_on_create = False
+    mode_list = False
+    mode_resume = None
+    mode_remove = None
+    mode_gc = False
+    mode_force = False
+    remove_worktree = False
+    raw_flag = False
+    mode_include_quarantined = False
+    mode_issue = None
+    mode_triage = False
+    smoke_only = False
+    no_mcp_gate = False
+    child_id = None
+    child_sidecar_dir = None
+    campaign = None
+    residual = []
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ('--help', '-h'):
+            _print_help()
+            sys.exit(0)
+        elif arg == '--family':
+            i += 1
+            if i < len(argv):
+                family = argv[i]
+                family_explicit = True
+            else:
+                print('caa-session: --family requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--family='):
+            family = arg[len('--family='):]
+            family_explicit = True
+        elif arg == '--pipeline':
+            i += 1
+            if i < len(argv):
+                pipeline_names.append(argv[i])
+            else:
+                print('caa-session: --pipeline requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--pipeline='):
+            pipeline_names.append(arg[len('--pipeline='):])
+        elif arg == '--pipelines':
+            i += 1
+            if i < len(argv):
+                pipelines_csv = argv[i]
+            else:
+                print('caa-session: --pipelines requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--pipelines='):
+            pipelines_csv = arg[len('--pipelines='):]
+        elif arg == '--no-pipeline':
+            i += 1
+            if i < len(argv):
+                no_pipeline_names.append(argv[i])
+            else:
+                print('caa-session: --no-pipeline requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--no-pipeline='):
+            no_pipeline_names.append(arg[len('--no-pipeline='):])
+        elif arg == '--disable-pipeline':
+            i += 1
+            if i < len(argv):
+                disable_pipeline_csv = argv[i]
+            else:
+                print('caa-session: --disable-pipeline requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--disable-pipeline='):
+            disable_pipeline_csv = arg[len('--disable-pipeline='):]
+        elif arg == '--keep-worktree':
+            keep_worktree = True
+        elif arg == '--remove-worktree':
+            remove_worktree = True
+        elif arg == '--no-fetch-on-create':
+            no_fetch_on_create = True
+        elif arg == '--list':
+            mode_list = True
+        elif arg == '--resume':
+            i += 1
+            if i < len(argv):
+                mode_resume = argv[i]
+            else:
+                print('caa-session: --resume requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--resume='):
+            mode_resume = arg[len('--resume='):]
+        elif arg == '--remove':
+            i += 1
+            if i < len(argv):
+                mode_remove = argv[i]
+            else:
+                print('caa-session: --remove requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--remove='):
+            mode_remove = arg[len('--remove='):]
+        elif arg == '--gc':
+            mode_gc = True
+        elif arg == '--force':
+            mode_force = True
+        elif arg == '--include-quarantined':
+            mode_include_quarantined = True
+        elif arg == '--raw':
+            raw_flag = True
+        elif arg == '--issue':
+            i += 1
+            if i < len(argv):
+                mode_issue = argv[i]
+            else:
+                print('caa-session: --issue requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--issue='):
+            mode_issue = arg[len('--issue='):]
+        elif arg == '--triage':
+            mode_triage = True
+        elif arg == '--smoke-only':
+            smoke_only = True
+        elif arg == '--no-mcp-gate':
+            no_mcp_gate = True
+        elif arg == '--child-id':
+            i += 1
+            if i < len(argv):
+                child_id = argv[i]
+            else:
+                print('caa-session: --child-id requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--child-id='):
+            child_id = arg[len('--child-id='):]
+        elif arg == '--child-sidecar-dir':
+            i += 1
+            if i < len(argv):
+                child_sidecar_dir = argv[i]
+            else:
+                print('caa-session: --child-sidecar-dir requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--child-sidecar-dir='):
+            child_sidecar_dir = arg[len('--child-sidecar-dir='):]
+        elif arg == '--campaign':
+            i += 1
+            if i < len(argv):
+                campaign = argv[i]
+            else:
+                print('caa-session: --campaign requires an argument', file=sys.stderr)
+                sys.exit(2)
+        elif arg.startswith('--campaign='):
+            campaign = arg[len('--campaign='):]
+        elif arg == '--remediate-from':
+            # Pass through to claude-session --remediate-from handler; treated as
+            # residual so the flag + its value survive the re-exec to claude-session.
+            residual.append(arg)
+            i += 1
+            if i < len(argv):
+                residual.append(argv[i])
+        elif arg.startswith('--remediate-from='):
+            residual.append(arg)
+        elif arg == '--accept-dirty':
+            print(
+                '[caa-session] error: --accept-dirty was removed by the launcher-redesign campaign.'
+                ' The launcher no longer commits at startup; this flag is no longer recognized.'
+                ' See docs/path-c-invariants.md for the new behavior.',
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        else:
+            residual.append(arg)
+        i += 1
+
+    # Mutual-exclusion checks (mirrors claude-session)
+    active_modes = []
+    if mode_list:
+        active_modes.append('--list')
+    if mode_resume is not None:
+        active_modes.append('--resume')
+    if mode_remove is not None:
+        active_modes.append('--remove')
+    if mode_gc:
+        active_modes.append('--gc')
+    if len(active_modes) >= 2:
+        print(f'caa-session: {active_modes[0]} and {active_modes[1]} are mutually exclusive.',
+              file=sys.stderr)
+        sys.exit(2)
+
+    if keep_worktree and remove_worktree:
+        print('caa-session: --keep-worktree and --remove-worktree are mutually exclusive.',
+              file=sys.stderr)
+        sys.exit(2)
+
+    if smoke_only and no_mcp_gate:
+        print('caa-session: --smoke-only and --no-mcp-gate are mutually exclusive.',
+              file=sys.stderr)
+        sys.exit(2)
+
+    if campaign is not None and not re.match(r'^[a-z][a-z0-9-]{2,63}$', campaign):
+        print(
+            f'caa-session: --campaign value "{campaign}" is not a valid slug '
+            f'(must match ^[a-z][a-z0-9-]{{2,63}}$)',
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    # Validate family only when explicitly provided; inference handles the None case later.
+    if family is not None and family not in ('claude', 'codex', 'gemini'):
+        print(f'caa-session: unknown --family value: {family!r}. '
+              f'Supported: claude (S16), codex (S17), gemini (S18).', file=sys.stderr)
+        sys.exit(2)
+
+    return {
+        'family': family,
+        'pipeline_names': pipeline_names,
+        'pipelines_csv': pipelines_csv,
+        'no_pipeline_names': no_pipeline_names,
+        'disable_pipeline_csv': disable_pipeline_csv,
+        'keep_worktree': keep_worktree,
+        'no_fetch_on_create': no_fetch_on_create,
+        'mode_list': mode_list,
+        'mode_resume': mode_resume,
+        'mode_remove': mode_remove,
+        'mode_gc': mode_gc,
+        'mode_force': mode_force,
+        'remove_worktree': remove_worktree,
+        'raw_flag': raw_flag,
+        'mode_include_quarantined': mode_include_quarantined,
+        'mode_issue': mode_issue,
+        'mode_triage': mode_triage,
+        'smoke_only': smoke_only,
+        'no_mcp_gate': no_mcp_gate,
+        'child_id': child_id,
+        'child_sidecar_dir': child_sidecar_dir,
+        'campaign': campaign,
+        'residual': residual,
+        'family_explicit': family_explicit,
+    }
+
+
+def _print_help():
+    print(
+        'Usage: caa-session [--family claude|codex|gemini] [OPTIONS] [initial_prompt...]\n'
+        '\n'
+        'Family selection:\n'
+        '  --family claude|codex|gemini  AI family to use. Resolution: explicit --family wins;\n'
+        '                                inferred from child-profile.json if --child-sidecar-dir\n'
+        '                                is set (exits 2 if manifest absent/malformed); fallback\n'
+        '                                "claude" for direct sessions. codex: S17; gemini: S18.\n'
+        '\n'
+        'All claude-session flags are accepted unchanged:\n'
+        '  --list, --resume, --remove, --gc, --force, --include-quarantined\n'
+        '  --pipeline, --pipelines, --no-pipeline, --disable-pipeline\n'
+        '  --keep-worktree, --remove-worktree, --no-fetch-on-create\n'
+        '  --raw, --issue, --triage\n'
+        '  --smoke-only, --no-mcp-gate\n'
+        '  --child-id, --child-sidecar-dir, --campaign\n'
+        '  --help\n'
+    )
+
+
+# ── Gemini dispatch helper ───────────────────────────────────────────────────
+
+def _dispatch_gemini(args: dict, family_descriptor, main_root: pathlib.Path) -> None:
+    """Wire --family gemini through run_session() directly.
+
+    Gemini has no legacy gemini-session binary, so we cannot re-exec the way
+    claude does. Instead we build a minimal session bootstrap (session_id, worktree,
+    pipeline flags, CliOptions) and call run_session() per the S14 design.
+
+    Pipeline resolution uses the same bootstrap-config path as claude-session.
+    Worktree creation delegates to cs._create_worktree() loaded from claude-session.
+    """
+    import importlib.machinery
+    import importlib.util
+    import secrets
+    import time as _time
+
+    from caa.launcher import PipelineFlags, CliOptions, run_session
+
+    # Load claude-session helpers (SourceFileLoader bridge — same as launcher.py).
+    cs_path = str(_BIN_DIR / 'claude-session')
+    loader = importlib.machinery.SourceFileLoader('_caa_claude_session_gemini', cs_path)
+    spec = importlib.util.spec_from_loader('_caa_claude_session_gemini', loader)
+    cs = importlib.util.module_from_spec(spec)
+    loader.exec_module(cs)
+
+    # ── Pipeline resolution from bootstrap-config ─────────────────────────────
+    bootstrap_cfg = cs._load_bootstrap_config(main_root)
+    _pipelines_cfg = bootstrap_cfg.get('pipelines', {}) or {}
+    registry_list = list(_pipelines_cfg.get('registry', ['ux']))
+    pipeline_registry_set = set(registry_list)
+    pipeline_defaults = _pipelines_cfg.get('defaults', {})
+    if 'pipelines' not in bootstrap_cfg:
+        pipeline_defaults = {'ux': bool(bootstrap_cfg.get('ux_enabled', False))}
+
+    # Resolve active pipelines from CLI args + defaults.
+    cli_positive = set(args['pipeline_names'])
+    if args['pipelines_csv']:
+        for _p in args['pipelines_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_positive.add(_p)
+    cli_optout = set(args['no_pipeline_names'])
+    if args['disable_pipeline_csv']:
+        for _p in args['disable_pipeline_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_optout.add(_p)
+
+    # Upstream-inject profile.additions.pipelines from child-profile.json BEFORE the
+    # active_pipelines loop so inherited pipelines flow through existing validation
+    # (load_pipeline_manifests fail-fast) without a second pass.
+    # Inherited pipelines from child-profile.json are pre-filtered against cli_optout —
+    # explicit opt-out suppresses inherited per principle-of-least-surprise.
+    _inherited = _load_child_profile_pipelines(args.get('child_sidecar_dir'))
+    cli_positive |= set(_inherited) - cli_optout
+
+    active_pipelines = set()
+    for p_name in registry_list:
+        default_on = pipeline_defaults.get(p_name, False)
+        if p_name in cli_positive:
+            active_pipelines.add(p_name)
+        elif p_name in cli_optout:
+            pass  # explicitly disabled
+        elif default_on:
+            active_pipelines.add(p_name)
+
+    # Load pipeline manifests (fail-fast on broken manifests).
+    try:
+        sys.path.insert(0, str(_BIN_DIR))
+        from pipeline_manifest import (
+            load_pipeline_manifests, validate_rules_skills_exist,
+            validate_agents_hooks_exist, validate_rubrics_exist,
+            PipelineManifestError,
+        )
+        pipelines_dir = str(main_root / '.claude' / 'pipelines')
+        pipeline_manifests = load_pipeline_manifests(
+            active_pipelines,
+            pipelines_dir=pipelines_dir,
+        )
+        for _manifest in pipeline_manifests.values():
+            validate_rules_skills_exist(_manifest, main_root)
+            validate_agents_hooks_exist(_manifest, main_root)
+            validate_rubrics_exist(_manifest, main_root)
+    except PipelineManifestError as e:
+        print(f'caa-session: pipeline manifest load failed: {e}', file=sys.stderr)
+        sys.exit(2)
+
+    # Scope flag + family flag: added after manifest load because neither has a
+    # manifest entry. 'gemini' selects the <!-- IF gemini --> blocks in render targets.
+    _scope_flag = 'child' if args['child_id'] is not None else 'root'
+    active_pipelines = active_pipelines | {_scope_flag, 'gemini'}
+
+    pipeline_flags = PipelineFlags(
+        active_pipelines=active_pipelines,
+        pipeline_registry=pipeline_registry_set,
+        pipeline_manifests=pipeline_manifests,
+        registry_list=registry_list,
+        fail_open=False,
+    )
+
+    # ── CliOptions from parsed args ───────────────────────────────────────────
+    cli_options = CliOptions(
+        keep_worktree=args['keep_worktree'],
+        remove_worktree=args['remove_worktree'],
+        campaign=args['campaign'],
+        child_sidecar_dir=args['child_sidecar_dir'],
+        child_id=args['child_id'],
+        smoke_only=args['smoke_only'],
+        no_mcp_gate=args['no_mcp_gate'],
+    )
+
+    # ── Session ID and directory ──────────────────────────────────────────────
+    sessions_root = main_root / '.agent_context' / 'sessions'
+    sessions_root.mkdir(parents=True, exist_ok=True)
+
+    def _gen_session_id():
+        ts = int(_time.time())
+        pid = os.getpid()
+        rand = secrets.token_hex(6)
+        return f'{ts}-{pid}-{rand}'
+
+    session_id = _gen_session_id()
+    while (sessions_root / session_id).exists():
+        session_id = _gen_session_id()
+
+    session_dir = sessions_root / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Worktree creation (§N.6) ──────────────────────────────────────────────
+    # Mirror _dispatch_claude (difference iv): resolve parent worktree root so
+    # the L2 worktree branches from L1's HEAD, not from origin/<default>.
+    # Fail-soft: if resolution fails, _resolve_parent_worktree_root() emits a
+    # stderr WARNING and returns None, causing _create_worktree to fall back
+    # to origin-based branching.
+    (main_root / '.agent_context' / 'worktrees').mkdir(parents=True, exist_ok=True)
+    worktree_path = main_root / '.agent_context' / 'worktrees' / session_id
+    _parent_wt_root = cs._resolve_parent_worktree_root(
+        main_root, args['child_sidecar_dir']
+    )
+    cs._create_worktree(
+        worktree_path,
+        main_root,
+        no_fetch=args['no_fetch_on_create'],
+        parent_worktree_root=_parent_wt_root,
+    )
+    cs._symlink_shared_state(worktree_path, main_root)
+
+    # ── Initial prompt from residual argv ────────────────────────────────────
+    task_body = ' '.join(args['residual'])
+
+    # ── Axis-9/10: budget enforcement + family env propagation ────────────────
+    # Set CAA_FAMILY so cycle-hook.py can suppress mid-task cycling for
+    # single-episode gemini L2 children (terminal cycling is retained).
+    os.environ['CAA_FAMILY'] = 'gemini'
+    _budget = _parse_budget_env()
+    _start_wall_deadline_watchdog(_budget['wall_deadline_epoch'])
+    _spawn_and_register_suborch_watchdog(session_dir, main_root)
+
+    # ── Pre-spawn capability probe (axis-8 (a)) ───────────────────────────────
+    # Most gemini capabilities are deferred per Topic 10 (A-3/A-4 pending);
+    # those return "deferred per Topic 10" which is a soft-pass (WARNING only).
+    # The probe will fail-fast on any "missing: ..." status if it ever occurs.
+    from caa.family_arm_gemini import GeminiFamilyArm
+    from caa.capability_probe import run_capability_probe, CapabilityProbeError
+    _required_caps = _load_required_capabilities(args.get('child_sidecar_dir'))
+    try:
+        run_capability_probe(GeminiFamilyArm(), _required_caps, 'gemini')
+    except CapabilityProbeError as _probe_err:
+        print(f'[caa-session] FATAL: {_probe_err}', file=sys.stderr)
+        sys.exit(1)
+
+    # ── Delegate to run_session() ─────────────────────────────────────────────
+    exit_code = run_session(
+        family_descriptor=family_descriptor,
+        session_dir=str(session_dir),
+        task_body=task_body,
+        pipeline_flags=pipeline_flags,
+        cli_options=cli_options,
+        worktree_path=worktree_path,
+        main_root=main_root,
+    )
+    sys.exit(exit_code)
+
+
+# ── Codex dispatch helper ────────────────────────────────────────────────────
+
+def _dispatch_codex(args: dict, family_descriptor, main_root: pathlib.Path) -> None:
+    """Wire --family codex through run_session() directly (S17).
+
+    Codex has no legacy codex-session binary, so we cannot re-exec the way
+    claude does. Instead we build a minimal session bootstrap (session_id, worktree,
+    pipeline flags, CliOptions) and call run_session() per the S14 design.
+
+    Pattern mirrors _dispatch_gemini() — pipeline resolution uses the same
+    bootstrap-config path; worktree creation delegates to cs._create_worktree()
+    loaded from claude-session via SourceFileLoader bridge.
+    """
+    import importlib.machinery
+    import importlib.util
+    import secrets
+    import time as _time
+
+    from caa.launcher import PipelineFlags, CliOptions, run_session
+
+    # Load claude-session helpers (SourceFileLoader bridge — same as launcher.py).
+    # This reuses _create_worktree, _load_bootstrap_config, etc. without extracting them.
+    cs_path = str(_BIN_DIR / 'claude-session')
+    loader = importlib.machinery.SourceFileLoader('_caa_claude_session_codex', cs_path)
+    spec = importlib.util.spec_from_loader('_caa_claude_session_codex', loader)
+    cs = importlib.util.module_from_spec(spec)
+    loader.exec_module(cs)
+
+    # ── Pipeline resolution from bootstrap-config ─────────────────────────────
+    bootstrap_cfg = cs._load_bootstrap_config(main_root)
+    _pipelines_cfg = bootstrap_cfg.get('pipelines', {}) or {}
+    registry_list = list(_pipelines_cfg.get('registry', ['ux']))
+    pipeline_registry_set = set(registry_list)
+    pipeline_defaults = _pipelines_cfg.get('defaults', {})
+    if 'pipelines' not in bootstrap_cfg:
+        pipeline_defaults = {'ux': bool(bootstrap_cfg.get('ux_enabled', False))}
+
+    # Resolve active pipelines from CLI args + defaults.
+    cli_positive = set(args['pipeline_names'])
+    if args['pipelines_csv']:
+        for _p in args['pipelines_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_positive.add(_p)
+    cli_optout = set(args['no_pipeline_names'])
+    if args['disable_pipeline_csv']:
+        for _p in args['disable_pipeline_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_optout.add(_p)
+
+    # Upstream-inject profile.additions.pipelines from child-profile.json BEFORE the
+    # active_pipelines loop so inherited pipelines flow through existing validation
+    # (load_pipeline_manifests fail-fast) without a second pass.
+    # Inherited pipelines from child-profile.json are pre-filtered against cli_optout —
+    # explicit opt-out suppresses inherited per principle-of-least-surprise.
+    _inherited = _load_child_profile_pipelines(args.get('child_sidecar_dir'))
+    cli_positive |= set(_inherited) - cli_optout
+
+    active_pipelines = set()
+    for p_name in registry_list:
+        default_on = pipeline_defaults.get(p_name, False)
+        if p_name in cli_positive:
+            active_pipelines.add(p_name)
+        elif p_name in cli_optout:
+            pass  # explicitly disabled
+        elif default_on:
+            active_pipelines.add(p_name)
+
+    # Load pipeline manifests (fail-fast on broken manifests).
+    # Scope flags ('root', 'child') are NOT pipelines and have no manifest; they must
+    # NOT be passed to load_pipeline_manifests() — add them only after manifest load.
+    try:
+        sys.path.insert(0, str(_BIN_DIR))
+        from pipeline_manifest import (
+            load_pipeline_manifests, validate_rules_skills_exist,
+            validate_agents_hooks_exist, validate_rubrics_exist,
+            PipelineManifestError,
+        )
+        pipelines_dir = str(main_root / '.claude' / 'pipelines')
+        pipeline_manifests = load_pipeline_manifests(
+            active_pipelines,
+            pipelines_dir=pipelines_dir,
+        )
+        for _manifest in pipeline_manifests.values():
+            validate_rules_skills_exist(_manifest, main_root)
+            validate_agents_hooks_exist(_manifest, main_root)
+            validate_rubrics_exist(_manifest, main_root)
+    except PipelineManifestError as e:
+        print(f'caa-session: pipeline manifest load failed: {e}', file=sys.stderr)
+        sys.exit(2)
+
+    # Session-scope flag + family flag: added after manifest load because neither has a
+    # manifest entry. 'codex' selects the <!-- IF codex --> blocks in render targets.
+    _scope_flag = 'child' if args['child_id'] is not None else 'root'
+    active_pipelines = active_pipelines | {_scope_flag, 'codex'}
+
+    pipeline_flags = PipelineFlags(
+        active_pipelines=active_pipelines,
+        pipeline_registry=pipeline_registry_set,
+        pipeline_manifests=pipeline_manifests,
+        registry_list=registry_list,
+        fail_open=False,
+    )
+
+    # ── CliOptions from parsed args ───────────────────────────────────────────
+    cli_options = CliOptions(
+        keep_worktree=args['keep_worktree'],
+        remove_worktree=args['remove_worktree'],
+        campaign=args['campaign'],
+        child_sidecar_dir=args['child_sidecar_dir'],
+        child_id=args['child_id'],
+        smoke_only=args['smoke_only'],
+        no_mcp_gate=args['no_mcp_gate'],
+    )
+
+    # ── Session ID and directory ──────────────────────────────────────────────
+    sessions_root = main_root / '.agent_context' / 'sessions'
+    sessions_root.mkdir(parents=True, exist_ok=True)
+
+    def _gen_session_id():
+        ts = int(_time.time())
+        pid = os.getpid()
+        rand = secrets.token_hex(6)
+        return f'{ts}-{pid}-{rand}'
+
+    session_id = _gen_session_id()
+    while (sessions_root / session_id).exists():
+        session_id = _gen_session_id()
+
+    session_dir = sessions_root / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Worktree creation (§N.6) ──────────────────────────────────────────────
+    # Mirror _dispatch_claude (difference iv): resolve parent worktree root so
+    # the L2 worktree branches from L1's HEAD, not from origin/<default>.
+    # Fail-soft: if resolution fails, _resolve_parent_worktree_root() emits a
+    # stderr WARNING and returns None, causing _create_worktree to fall back
+    # to origin-based branching.
+    (main_root / '.agent_context' / 'worktrees').mkdir(parents=True, exist_ok=True)
+    worktree_path = main_root / '.agent_context' / 'worktrees' / session_id
+    _parent_wt_root = cs._resolve_parent_worktree_root(
+        main_root, args['child_sidecar_dir']
+    )
+    cs._create_worktree(
+        worktree_path,
+        main_root,
+        no_fetch=args['no_fetch_on_create'],
+        parent_worktree_root=_parent_wt_root,
+    )
+    cs._symlink_shared_state(worktree_path, main_root)
+
+    # ── Initial prompt from residual argv ────────────────────────────────────
+    task_body = ' '.join(args['residual'])
+
+    # ── Axis-9/10: budget enforcement + family env propagation ────────────────
+    # Set CAA_FAMILY so cycle-hook.py can suppress mid-task cycling for
+    # single-episode codex L2 children (terminal cycling is retained).
+    os.environ['CAA_FAMILY'] = 'codex'
+    # D-7 R2: set CAA_CODEX_LIFECYCLE=multi-episode for codex children whose
+    # child-profile.json specifies lifecycle.max_episodes > 1.  cycle-hook.py
+    # conditions the Candidate A cycling lift on this env var.
+    _child_max_episodes = _load_child_max_episodes(args.get('child_sidecar_dir'))
+    if _child_max_episodes > 1:
+        os.environ['CAA_CODEX_LIFECYCLE'] = 'multi-episode'
+    _budget = _parse_budget_env()
+    _start_wall_deadline_watchdog(_budget['wall_deadline_epoch'])
+    _spawn_and_register_suborch_watchdog(session_dir, main_root)
+
+    # ── Pre-spawn capability probe (axis-8 (a)) ───────────────────────────────
+    # Verify each required capability is reachable in the codex arm BEFORE
+    # any subprocess is spawned.  Fail-fast on missing capability so the
+    # parent's dispatch-l2 rollback path fires without consuming child tokens.
+    from caa.family_arm_codex import CodexFamilyArm
+    from caa.capability_probe import run_capability_probe, CapabilityProbeError
+    _required_caps = _load_required_capabilities(args.get('child_sidecar_dir'))
+    try:
+        run_capability_probe(CodexFamilyArm(), _required_caps, 'codex')
+    except CapabilityProbeError as _probe_err:
+        print(f'[caa-session] FATAL: {_probe_err}', file=sys.stderr)
+        sys.exit(1)
+
+    # ── Delegate to run_session() ─────────────────────────────────────────────
+    exit_code = run_session(
+        family_descriptor=family_descriptor,
+        session_dir=str(session_dir),
+        task_body=task_body,
+        pipeline_flags=pipeline_flags,
+        cli_options=cli_options,
+        worktree_path=worktree_path,
+        main_root=main_root,
+        codex_raw_dir=str(session_dir),  # axis-11 Branch A: capture per-episode stdout
+    )
+
+    # ── Post-process: coerce codex transcript to Claude schema (axis-11, Branch A) ──
+    # run_session() wrote per-episode raw codex JSONL to session_dir/codex-raw-ep*.jsonl.
+    # Translate to Claude-schema JSONL at ~/.claude/projects/<slug>/<thread_id>.jsonl so
+    # all downstream consumers (TUI, pipeline_prune, smoke harness) see a family-agnostic
+    # transcript.  Also archive raw to {child_sidecar_dir}/codex-raw.jsonl for durable
+    # forensic access (full codex-native fields accessible without coercion reverse-engineering).
+    import glob as _glob
+    import _codex_transcript_coerce as _coerce
+
+    try:
+        _raw_ep_files = sorted(_glob.glob(str(session_dir / 'codex-raw-ep*.jsonl')))
+        if _raw_ep_files:
+            # Concatenate all episodes into a single raw byte stream.
+            _all_raw = b''
+            for _rf in _raw_ep_files:
+                try:
+                    with open(_rf, 'rb') as _fh:
+                        _all_raw += _fh.read()
+                except OSError as _e:
+                    print(
+                        f'[_dispatch_codex] WARNING: raw ep read failed ({_rf}): {_e}',
+                        file=sys.stderr,
+                    )
+
+            if _all_raw:
+                # Archive raw JSONL to child sidecar for durable forensic access.
+                _child_sidecar = args.get('child_sidecar_dir')
+                if _child_sidecar:
+                    _raw_sidecar_path = os.path.join(_child_sidecar, 'codex-raw.jsonl')
+                    try:
+                        _tmp_raw = _raw_sidecar_path + '.tmp'
+                        with open(_tmp_raw, 'wb') as _fh:
+                            _fh.write(_all_raw)
+                        os.replace(_tmp_raw, _raw_sidecar_path)
+                    except OSError as _e:
+                        print(
+                            f'[_dispatch_codex] WARNING: raw sidecar write failed: {_e}',
+                            file=sys.stderr,
+                        )
+
+                # Coerce and write to Claude-conventional path.
+                _thread_id = _coerce.extract_thread_id(_all_raw) or session_id
+                _coerced = _coerce.coerce_codex_to_claude(_all_raw, _thread_id)
+                if _coerced:
+                    _slug = cs._claude_project_slug(worktree_path)
+                    _claude_dir = os.path.expanduser(f'~/.claude/projects/{_slug}')
+                    os.makedirs(_claude_dir, exist_ok=True)
+                    _claude_path = os.path.join(_claude_dir, f'{_thread_id}.jsonl')
+                    try:
+                        _tmp_claude = _claude_path + '.tmp'
+                        with open(_tmp_claude, 'wb') as _fh:
+                            _fh.write(_coerced)
+                        os.replace(_tmp_claude, _claude_path)
+                    except OSError as _e:
+                        print(
+                            f'[_dispatch_codex] WARNING: Claude transcript write failed: {_e}',
+                            file=sys.stderr,
+                        )
+    except Exception as _e:
+        print(f'[_dispatch_codex] WARNING: transcript coercion stage failed: {_e}',
+              file=sys.stderr)
+
+    sys.exit(exit_code)
+
+
+# ── Claude L2 dispatch helper ────────────────────────────────────────────────
+
+def _dispatch_claude(args: dict, family_descriptor, main_root: pathlib.Path) -> None:
+    """Wire --family claude through run_session() for L2 child sessions (D3).
+
+    Invoked only when --child-sidecar-dir is set, indicating this is an L2
+    child spawn (not a direct L1 claude session).  L1 sessions continue to
+    use the existing re-exec path in main().
+
+    Pattern mirrors _dispatch_codex exactly.  Four differences from _dispatch_codex:
+      (i)   active_pipelines includes 'claude' (not 'codex').
+      (ii)  CAA_FAMILY='claude'; CAA_CODEX_LIFECYCLE is NOT set.
+      (iii) ClaudeFamilyArm() passed to capability probe (not CodexFamilyArm()).
+      (iv)  Worktree branches from parent worktree HEAD via
+            cs._resolve_parent_worktree_root() + _create_worktree(parent_worktree_root=).
+    """
+    import importlib.machinery
+    import importlib.util
+    import secrets
+    import time as _time
+
+    from caa.launcher import PipelineFlags, CliOptions, run_session
+
+    # Load claude-session helpers (SourceFileLoader bridge — same as launcher.py).
+    # This reuses _create_worktree, _resolve_parent_worktree_root, etc. without
+    # extracting them from the claude-session binary.
+    cs_path = str(_BIN_DIR / 'claude-session')
+    loader = importlib.machinery.SourceFileLoader('_caa_claude_session_claude', cs_path)
+    spec = importlib.util.spec_from_loader('_caa_claude_session_claude', loader)
+    cs = importlib.util.module_from_spec(spec)
+    loader.exec_module(cs)
+
+    # ── Pipeline resolution from bootstrap-config ─────────────────────────────
+    bootstrap_cfg = cs._load_bootstrap_config(main_root)
+    _pipelines_cfg = bootstrap_cfg.get('pipelines', {}) or {}
+    registry_list = list(_pipelines_cfg.get('registry', ['ux']))
+    pipeline_registry_set = set(registry_list)
+    pipeline_defaults = _pipelines_cfg.get('defaults', {})
+    if 'pipelines' not in bootstrap_cfg:
+        pipeline_defaults = {'ux': bool(bootstrap_cfg.get('ux_enabled', False))}
+
+    # Resolve active pipelines from CLI args + defaults.
+    cli_positive = set(args['pipeline_names'])
+    if args['pipelines_csv']:
+        for _p in args['pipelines_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_positive.add(_p)
+    cli_optout = set(args['no_pipeline_names'])
+    if args['disable_pipeline_csv']:
+        for _p in args['disable_pipeline_csv'].split(','):
+            _p = _p.strip()
+            if _p:
+                cli_optout.add(_p)
+
+    # Upstream-inject profile.additions.pipelines from child-profile.json BEFORE the
+    # active_pipelines loop so inherited pipelines flow through existing validation
+    # (load_pipeline_manifests fail-fast) without a second pass.
+    # Inherited pipelines from child-profile.json are pre-filtered against cli_optout —
+    # explicit opt-out suppresses inherited per principle-of-least-surprise.
+    _inherited = _load_child_profile_pipelines(args.get('child_sidecar_dir'))
+    cli_positive |= set(_inherited) - cli_optout
+
+    active_pipelines = set()
+    for p_name in registry_list:
+        default_on = pipeline_defaults.get(p_name, False)
+        if p_name in cli_positive:
+            active_pipelines.add(p_name)
+        elif p_name in cli_optout:
+            pass  # explicitly disabled
+        elif default_on:
+            active_pipelines.add(p_name)
+
+    # Load pipeline manifests (fail-fast on broken manifests).
+    # Scope flags ('root', 'child') are NOT pipelines and have no manifest; they must
+    # NOT be passed to load_pipeline_manifests() — add them only after manifest load.
+    try:
+        sys.path.insert(0, str(_BIN_DIR))
+        from pipeline_manifest import (
+            load_pipeline_manifests, validate_rules_skills_exist,
+            validate_agents_hooks_exist, validate_rubrics_exist,
+            PipelineManifestError,
+        )
+        pipelines_dir = str(main_root / '.claude' / 'pipelines')
+        pipeline_manifests = load_pipeline_manifests(
+            active_pipelines,
+            pipelines_dir=pipelines_dir,
+        )
+        for _manifest in pipeline_manifests.values():
+            validate_rules_skills_exist(_manifest, main_root)
+            validate_agents_hooks_exist(_manifest, main_root)
+            validate_rubrics_exist(_manifest, main_root)
+    except PipelineManifestError as e:
+        print(f'caa-session: pipeline manifest load failed: {e}', file=sys.stderr)
+        sys.exit(2)
+
+    # Session-scope flag + family flag: added after manifest load because neither has a
+    # manifest entry.  'claude' selects the <!-- IF claude --> blocks in render targets.
+    # Difference (i): 'claude' not 'codex'.
+    _scope_flag = 'child' if args['child_id'] is not None else 'root'
+    active_pipelines = active_pipelines | {_scope_flag, 'claude'}
+
+    pipeline_flags = PipelineFlags(
+        active_pipelines=active_pipelines,
+        pipeline_registry=pipeline_registry_set,
+        pipeline_manifests=pipeline_manifests,
+        registry_list=registry_list,
+        fail_open=False,
+    )
+
+    # ── CliOptions from parsed args ───────────────────────────────────────────
+    # Honour child-profile.json lifecycle.max_episodes so the L2 session does
+    # not default to the L1 value of 20/30 when the manifest specifies (e.g.) 5.
+    _child_max_episodes = _load_child_max_episodes(args.get('child_sidecar_dir'))
+    cli_options = CliOptions(
+        keep_worktree=args['keep_worktree'],
+        remove_worktree=args['remove_worktree'],
+        campaign=args['campaign'],
+        child_sidecar_dir=args['child_sidecar_dir'],
+        child_id=args['child_id'],
+        smoke_only=args['smoke_only'],
+        no_mcp_gate=args['no_mcp_gate'],
+        max_episodes=_child_max_episodes,
+    )
+
+    # ── Session ID and directory ──────────────────────────────────────────────
+    sessions_root = main_root / '.agent_context' / 'sessions'
+    sessions_root.mkdir(parents=True, exist_ok=True)
+
+    def _gen_session_id():
+        ts = int(_time.time())
+        pid = os.getpid()
+        rand = secrets.token_hex(6)
+        return f'{ts}-{pid}-{rand}'
+
+    session_id = _gen_session_id()
+    while (sessions_root / session_id).exists():
+        session_id = _gen_session_id()
+
+    session_dir = sessions_root / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Worktree creation (§N.6) ──────────────────────────────────────────────
+    # Difference (iv): resolve parent worktree root from child-profile.json so
+    # the L2 worktree branches from L1's HEAD, not from origin/<default>.
+    # Fail-soft: if resolution fails (missing parent_session_id, registry miss,
+    # etc.) _resolve_parent_worktree_root() emits a stderr WARNING and returns
+    # None, which causes _create_worktree to fall back to origin-based branching.
+    (main_root / '.agent_context' / 'worktrees').mkdir(parents=True, exist_ok=True)
+    worktree_path = main_root / '.agent_context' / 'worktrees' / session_id
+    _parent_wt_root = cs._resolve_parent_worktree_root(
+        main_root, args['child_sidecar_dir']
+    )
+    cs._create_worktree(
+        worktree_path,
+        main_root,
+        no_fetch=args['no_fetch_on_create'],
+        parent_worktree_root=_parent_wt_root,
+    )
+    cs._symlink_shared_state(worktree_path, main_root)
+
+    # ── Initial prompt from residual argv ────────────────────────────────────
+    task_body = ' '.join(args['residual'])
+
+    # ── Axis-9/10: budget enforcement + family env propagation ────────────────
+    # Difference (ii): set CAA_FAMILY='claude'; do NOT set CAA_CODEX_LIFECYCLE.
+    os.environ['CAA_FAMILY'] = 'claude'
+    _budget = _parse_budget_env()
+    _start_wall_deadline_watchdog(_budget['wall_deadline_epoch'])
+    _spawn_and_register_suborch_watchdog(session_dir, main_root)
+
+    # ── Pre-spawn capability probe (axis-8 (a)) ───────────────────────────────
+    # Difference (iii): ClaudeFamilyArm() not CodexFamilyArm().
+    # Fail-fast on missing capability so the parent's dispatch-l2 rollback path
+    # fires without consuming child tokens.
+    from caa.family_arm_claude import ClaudeFamilyArm
+    from caa.capability_probe import run_capability_probe, CapabilityProbeError
+    _required_caps = _load_required_capabilities(args.get('child_sidecar_dir'))
+    try:
+        run_capability_probe(ClaudeFamilyArm(), _required_caps, 'claude')
+    except CapabilityProbeError as _probe_err:
+        print(f'[caa-session] FATAL: {_probe_err}', file=sys.stderr)
+        sys.exit(1)
+
+    # ── Delegate to run_session() ─────────────────────────────────────────────
+    exit_code = run_session(
+        family_descriptor=family_descriptor,
+        session_dir=str(session_dir),
+        task_body=task_body,
+        pipeline_flags=pipeline_flags,
+        cli_options=cli_options,
+        worktree_path=worktree_path,
+        main_root=main_root,
+    )
+    sys.exit(exit_code)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    global _caa_worktree_path, _caa_crashed
+
+    args = _parse_args(sys.argv[1:])
+
+    # Subcommand dispatch: issues seed / config — delegate back to claude-session
+    # for back-compat (these sub-commands are family-agnostic infra).
+    if len(sys.argv) >= 2 and sys.argv[1] in ('issues', 'config'):
+        cs_path = str(_BIN_DIR / 'claude-session')
+        os.execvpe(sys.executable, [sys.executable, cs_path] + sys.argv[1:], os.environ)
+        # execvpe only returns on OSError (raises); no fall-through.
+
+    # Delegate to claude-session for management modes (--list / --remove / --gc)
+    # These are family-agnostic and already fully implemented there.
+    if args['mode_list'] or args['mode_remove'] is not None or args['mode_gc']:
+        cs_path = str(_BIN_DIR / 'claude-session')
+        os.execvpe(sys.executable, [sys.executable, cs_path] + sys.argv[1:], os.environ)
+
+    # Resolve family (explicit --family wins; infer from manifest if --child-sidecar-dir;
+    # fall back to 'claude' for direct sessions — full contract in _resolve_family).
+    _resolve_family(args)
+    family_name = args['family']
+    main_root = _resolve_project_root()
+
+    # Load and validate family descriptor (exits with non-zero on validation failure).
+    try:
+        family_descriptor = load_family(family_name, main_root)
+    except FamilyDescriptorError as e:
+        print(f'caa-session: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    # ── Gemini dispatch: call run_session() directly (no re-exec path exists) ──
+    # S18: --family gemini goes through run_session() directly per the S16
+    # validator report mandate: "MUST wire --family gemini through run_session()
+    # directly — there is no gemini-session equivalent to re-exec into."
+    if family_name == 'gemini':
+        _dispatch_gemini(args, family_descriptor, main_root)
+        return  # _dispatch_gemini calls sys.exit internally
+
+    # ── Codex dispatch: call run_session() directly (S17) ────────────────────
+    # Per validator-subtask-16-r2: codex MUST transit run_session() directly —
+    # there is no codex-session binary to re-exec into.
+    if family_name == 'codex':
+        _dispatch_codex(args, family_descriptor, main_root)
+        return  # _dispatch_codex calls sys.exit internally
+
+    # ── Claude L2 dispatch: route through run_session() when --child-sidecar-dir ──
+    # When --child-sidecar-dir is present this is an L2 child spawn; use
+    # _dispatch_claude() which builds the proper worktree, pipeline flags, and
+    # CliOptions before calling run_session() (same pattern as codex/gemini).
+    # When --child-sidecar-dir is absent this is a direct L1 invocation; fall
+    # through to the existing capability-probe + re-exec path unchanged.
+    if family_name == 'claude':
+        if args.get('child_sidecar_dir') is not None:
+            _dispatch_claude(args, family_descriptor, main_root)
+            return  # _dispatch_claude calls sys.exit internally
+
+    # ── Claude re-exec: probe capabilities before execvpe ────────────────────
+    # CL-9 fix-round R2 G-R1-V-02: the claude path silently skipped the probe
+    # before this fix. Now mirrors the codex pattern at lines 757-764 and the
+    # gemini pattern at lines 580-585. Fail-fast on missing capability so the
+    # parent's dispatch-l2 rollback path fires without consuming child tokens.
+    if family_name == 'claude':
+        from caa.family_arm_claude import ClaudeFamilyArm
+        from caa.capability_probe import run_capability_probe, CapabilityProbeError
+        _required_caps = _load_required_capabilities(args.get('child_sidecar_dir'))
+        try:
+            run_capability_probe(ClaudeFamilyArm(), _required_caps, 'claude')
+        except CapabilityProbeError as _probe_err:
+            print(f'[caa-session] FATAL: {_probe_err}', file=sys.stderr)
+            sys.exit(1)
+
+    # ── Delegate all other sub-paths to claude-session for S16 ───────────────
+    # S16 scope-deviation: caa-session re-execs claude-session for --family claude
+    # rather than calling run_session() directly. Rationale: claude-session main()
+    # handles TUI / worktree creation / resume / MCP gate; extracting these into
+    # run_session() exceeds S16 scope. S17/S18 will surface whether this matters
+    # when codex/gemini arms must call run_session() directly. Tracked as follow-up.
+    #
+    # CAA_INTERNAL_REEXEC=1 is set before the execvpe so claude-session's main()
+    # shim detects it and calls _main_original() directly instead of re-execing
+    # caa-session again — breaking the infinite re-exec cycle.
+    # Filter --family <value> AND --family=<value> from sys.argv[1:] before re-exec.
+    # IMPORTANT: iterate over sys.argv[1:] directly (NOT a pre-filtered list) so the
+    # skip_next loop can see '--family' and skip the value that follows. Previous
+    # implementation pre-stripped --family with a list comprehension, leaving the
+    # value (e.g. 'claude') as a stray positional that the inner claude-session
+    # treated as initial_prompt, suppressing the TUI (residual_argv non-empty).
+    clean_argv = []
+    skip_next = False
+    for a in sys.argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if a == '--family':
+            skip_next = True
+            continue
+        if a.startswith('--family='):
+            continue
+        clean_argv.append(a)
+
+    cs_path = str(_BIN_DIR / 'claude-session')
+    # Propagate the operator's original argv so _capture_diagnostic_bundle can
+    # record it faithfully in original-argv.json.  This env-var is the only way
+    # to pass the pre-exec argv across the bash bootstrap boundary.
+    # [verified: design-launcher-remediation-pipeline-r1.md § Step 2]
+    import json as _json_orig_argv
+    os.environ['CAA_ORIGINAL_LAUNCHER_ARGV'] = _json_orig_argv.dumps(sys.argv)
+    # Sentinel prevents re-exec cycle: claude-session main() checks this and
+    # calls _main_original() directly when set.
+    os.environ['CAA_INTERNAL_REEXEC'] = '1'
+    os.execvpe(sys.executable, [sys.executable, cs_path] + clean_argv, os.environ)
+    # execvpe only returns on OSError (raises); unreachable on success.
+
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    main()

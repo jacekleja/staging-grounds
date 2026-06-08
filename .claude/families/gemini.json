@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0.0",
+  "family": "gemini",
+  "cli_command": {
+    "binary": "${GEMINI_BINARY:-gemini}",
+    "invocation_args": [
+      "-p",
+      "--yolo",
+      "--output-format", "stream-json"
+    ],
+    "prompt_mode": "prompt-arg",
+    "family_disambiguator": "gemini -p (stdin lower attention weight; orchestrator-prompt delivered via GEMINI.md workspace file)"
+  },
+  "system_prompt_delivery_mode": {
+    "mode": "workspace_geminimd",
+    "flag_template": "(copy {path} → ${WORKTREE}/GEMINI.md before spawn; no flag)",
+    "notes": "DEGRADED PATH. Gemini has no system-prompt-flag equivalent (per constraints/gemini-cli-no-system-prompt-flag.md). GEMINI.md in CWD is workspace-discovered and the closest available system-priority surface. Family arm copies the rendered orchestrator-prompt to ${WORKTREE}/GEMINI.md before spawn. Attention-weight risk documented; cycling at 190K (per constraints/gemini-orchestrator-host-tpm-exhaustion.md) mitigates the TPM-exhaustion clock."
+  },
+  "mcp_registration_file_path": {
+    "path_template": "${HOME}/.gemini/settings.json",
+    "format": "json_nested_object",
+    "install_script": "bin/install-gemini-hooks.sh",
+    "notes": "Nested 'mcpServers' object inside settings.json, bracketed by _caa_gemini_mcp_begin / _caa_gemini_mcp_end marker keys per the install-gemini-hooks.sh idempotence model. Launcher invokes install script at pre_spawn_hook time. install-gemini-hooks.sh also installs the gemini hook shims (S13)."
+  },
+  "agent_registry_mode": {
+    "mode": "prerendered_in_orchestrator_prompt",
+    "scan_root_template": null,
+    "prerender_section": "## Agent roster (pre-rendered)",
+    "notes": "Gemini has no in-process Agent-tool dispatch (same as codex). Dispatch via dispatch_agent MCP tool. Agent roster inlined into orchestrator-prompt at Phase 1 neutralization. Q-15 hallucination risk mitigated by JSON Schema enum on dispatch_agent.subagent_type."
+  },
+  "token_measurement_mechanism": {
+    "mechanism": "stream_json_token_events",
+    "source_path_template": "${SESSION_DIR}/gemini-stream.jsonl",
+    "parse_strategy": "tee gemini --output-format stream-json stdout to gemini-stream.jsonl; parse incremental token events + final stats record per gemini-self-knowledge-r2 Q-9",
+    "polling_interval_ms": 1000
+  },
+  "auth_lifecycle": {
+    "mode": "gemini_oauth_proactive_refresh",
+    "required_env_vars": [],
+    "refresh_strategy": "pre_launch_refresh_recommended",
+    "pre_launch_check": "bin/check-gemini-auth.sh",
+    "notes": "Gemini OAuth refresh is fragile under long-lived orchestrator sessions per dispatch-agent-gpt-route-oauth-parity-campaign-digest.md. pre_launch_check proactively refreshes OAuth tokens before worktree creation to reduce mid-session token-expiry failures. Cycling at 190K bounds session lifetime, capping the refresh-cadence problem."
+  }
+}

@@ -95,11 +95,16 @@ def render_active_pipelines_section(
             lines.append(m.summary)
             lines.append("")
 
-        # Agents owned line (.md suffix stripped)
-        agents_csv = ", ".join(
-            a[: -len(".md")] if a.endswith(".md") else a for a in m.agents
-        )
-        lines.append(f"**Agents owned:** {agents_csv}")
+        # Agents owned line (.md suffix stripped); render explanatory text
+        # when the manifest declares no main-session agents (e.g., bootstrap
+        # pipeline whose agents live in a separate launcher's agent set).
+        if m.agents:
+            agents_csv = ", ".join(
+                a[: -len(".md")] if a.endswith(".md") else a for a in m.agents
+            )
+            lines.append(f"**Agents owned:** {agents_csv}")
+        else:
+            lines.append("**Agents owned:** _none in main-session — see launcher_")
         lines.append("")
 
         # Optional planner_snippet verbatim

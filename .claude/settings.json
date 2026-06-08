@@ -1,0 +1,596 @@
+{
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/cycle-hook.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/critic-gate-check.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-latency-tracker.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__session",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/digest-check.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/mcp-retry-warn.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/post-stop-verify.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__findings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/findings-shape-issue-warn.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-content-write-counter.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-content-write-counter.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-content-write-counter.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-content-write-counter.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__build_run",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/build-pass-sha-writer.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/deployment-sync.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/deployment-sync.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/deployment-sync.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/deployment-sync.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/orchestrator-pulse.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__alpha-pipeline__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/alpha-measurement-tracker.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/inline-chaining-cue.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/retry-burst-counter.py\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/truncate-bash.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/critic-gate-tracker.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-latency-tracker.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/delegation-trace-hook.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/build-pass-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/write-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/write-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/write-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/cycle-hook.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/delegation-prompt-schema-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/post-stop-verify.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/v3-protocol-schema-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/bin/skill-agent-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/write-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/write-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__smart_bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__knowledge",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/knowledge-write-guard.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__context-tools__dispatch_agent_status",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/dispatch-status-rate-gate.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/l2-heartbeat-emitter.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/l2-abort-now-gate.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/cycle-hook.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/critic-gate-tracker.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/critic-gate-check.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/agent-latency-tracker.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/terminal-title.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/turn-continuity-block.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/dispatch-completion-watcher.py\"",
+            "asyncRewake": true,
+            "timeout": 1810
+          },
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/dispatch-stale-sweep.py\"",
+            "asyncRewake": true,
+            "timeout": 1810
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/bin/dispatch-daemon-supervisor.py\" --stop",
+            "asyncRewake": false,
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/inline-chaining-cue.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/terminal-title.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/user-intent-capture.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/loop-active-on-user-prompt.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/frame-clarify-cue.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/dispatch-stale-sweep.py\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/terminal-title.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/home/fanderman/projects/luigis-box/.claude/hooks/mcp-availability-gate.py\""
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"/home/fanderman/projects/luigis-box/.claude/hooks/toast-notify.sh\" 2>/dev/null || true",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/statusline-bloom.sh\""
+  },
+  "theme": "custom:bloom"
+}
