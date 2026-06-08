@@ -1,0 +1,15 @@
+{
+  "_comment": "Single source-of-truth for the Path-C mandatory symlink set (INV 3). KEEP IN SYNC: bin/claude-session (_symlink_shared_state), docs/path-c-invariants.md §3, .claude/orchestrator-prompt.md §I. See track2-split-brain-audit.md §R4.",
+  "agent_context_subdirs": [
+    "sessions",
+    "logs",
+    "audit",
+    "campaigns",
+    "archive"
+  ],
+  "claude_subdirs": [
+    "knowledge",
+    "knowledge-log",
+    "mcp"
+  ]
+}
