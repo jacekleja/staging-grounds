@@ -326,6 +326,8 @@ Wave 6 is audit and housekeeping: Subtask 10 coherence audit, then Subtasks 11-1
 
 **Review policy**: `[peer-review]`; live SSE interpretation is consequential and gates production wire-shape code.
 
+**Status**: DONE — LIVE-VERIFIED (2026-06-09). Real signature-cache HIT confirmed live against AWS Bedrock with local Docker Postgres (`conversational-proxy-postgres`) providing the cache DB. Repeat query (`kytara`, `sk`) served as cache HIT: `cache.status=HIT`, 0.19 s vs 4.95 s real generation, no LangGraph `/runs/stream` dispatch on Q2; synthesized SSE shape matches the gate (correct event ordering, `[DONE conversational_run_<uuid>]` terminator, byte-identical replay); prompt fingerprint `bd5ebd03` consistent across write and hit; the prior `signature_cache upsert skipped (no CONVERSATIONAL_CACHE_DATABASE_URL)` line appears 0 times. `remediation_required: no`. Evidence: session `1781001505-6469-00ebdec6795a` — `cache-hit-live-verification-report.md` (+ raw SSE captures `q1_write_raw_sse.txt` / `q2_hit_raw_sse.txt`).
+
 ### Subtask 9: G cache-HIT wire-shape remediation [peer-review]
 
 **Description**: Read Subtask 8's cache-HIT report. If `remediation_required: no`, do not edit code; write a no-op implementation report citing the raw SSE evidence. If remediation is required, patch only the divergent HIT-path wire-shape behavior in proxy code. Likely targets are `app/service/conversation_service.py`, `app/service/signature_cache.py`, `tests/unit/test_sse_synth_from_payload.py`, `tests/integration/test_signature_cache_hit_path.py`, and `tests/integration/test_turn_events_cache_hit.py`. Preserve MISS-path behavior and HIT/MISS `__meta__` symmetry.
@@ -352,6 +354,8 @@ Wave 6 is audit and housekeeping: Subtask 10 coherence audit, then Subtasks 11-1
 **target_artifact_type**: code
 
 **Review policy**: `[peer-review]`; mandatory cross-family peer-review plus validator for any code change. If no-op, peer-review checks the evidence/no-op judgment.
+
+**Status**: DONE — NO-OP (2026-06-09). Subtask 8 verdict `remediation_required: no`: the live HIT SSE shape already conforms to prod-FE wire expectations — no stray `__work_status__` events, `[DONE conversational_run_<uuid>]` terminator (not bare `[DONE]`), correct `cache.status=HIT` in `__meta__`, byte-identical payload replay. No code changes made. Evidence: session `1781001505-6469-00ebdec6795a` — `cache-hit-live-verification-report.md` (+ raw SSE captures `q1_write_raw_sse.txt` / `q2_hit_raw_sse.txt`).
 
 ### Subtask 10: Coherence audit against checklist
 
