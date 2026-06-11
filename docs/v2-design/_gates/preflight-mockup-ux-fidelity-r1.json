@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.1",
+  "task": "mockup-ux-fidelity-preflight",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "pre-flight-gate",
+  "verdict": "request-changes",
+  "gaps": [
+    {
+      "id": "G-R1-PF-1",
+      "description": "A6/prioritized-divergence-5 evidence sub-claim 'Price fallback labels are hardcoded Czech' is contradicted by the cited code: turn1_selector.py _try_price_fallback l.196-206 routes all three price chip labels through _t(raw_language, ...), so they are language-resolved, not hardcoded Czech. The A6 PARTIAL verdict survives on the verified categorical-chip evidence (l.138 label==filter_value), so only this sub-claim is false.",
+      "classification": "important",
+      "category": "incorrect-implementation",
+      "evidence": "[verified: conversational-search/src/conversational_search/agent/turn1_selector.py (_try_price_fallback)] l.196-206 emit `\"label\": _t(raw_language, \"price_chip_below\").format(price=p33)` (and price_chip_range / price_chip_above) — contradicts report l.96 'Price fallback labels are hardcoded Czech'",
+      "fix_hint": "[dimension: D-citation-verifiability] Drop or correct the 'price fallback labels hardcoded Czech' sub-claim in A6 row (l.96) and prioritized item #5 (l.96); price chips ARE localized via _t(). Keep the verified categorical-chip half (l.138)."
+    },
+    {
+      "id": "G-R1-PF-2",
+      "description": "Executive summary (l.3) states 'Three items are PARTIAL' but the Verdict Tally (l.106) and per-row tables show four PARTIAL (A6, A8, A9, A10). The summary's third enumerated partial — the unsafe template fix — is graded MATCH in the mode table (l.44) and copy table (l.67), not PARTIAL; A6 and A10 are omitted from the headline. The headline count and enumeration contradict the body.",
+      "classification": "important",
+      "category": "incorrect-implementation",
+      "evidence": "report l.3 ('Three items are PARTIAL') vs l.106 tally (PARTIAL | 4 | A6, A8, A9, A10); unsafe graded MATCH at l.44 and l.67",
+      "fix_hint": "[dimension: D-senior-engineer-eyebrow] Correct executive summary l.3 to 'Four items are PARTIAL (A6, A8, A9, A10)'; remove the unsafe-fix from the partial enumeration (it is a MATCH)."
+    }
+  ],
+  "scope_covered": [
+    "active_rubrics supplied as [generator-preflight]; no coercion needed",
+    "misroute check: research markers present (executive summary l.3 + citation-bearing claims throughout)",
+    "D-unverified-load-bearing: grep for [Unverified]/[Inferred] returned 0 hits — no unverified load-bearing claims",
+    "D-citation-verifiability: re-traced DIVERGENT out_of_scope_deflect graph.py l.3270-3287 (hardcoded template, zero LLM call — supports verdict); A8 _CHAT_AFFORDANCE_TIERS graph.py l.302 + TIER_ENUM canonical_enums.py l.37 (set(TIER_ENUM[1:]) excludes decisive — supports verdict); A9 _render_turn1_preview_block graph.py l.1429-1444 (question_led branch emits no type_it_out key — supports verdict); A10 _render_gift_advisor_takeover_block graph.py l.1518 (label: anchor.label raw, vs type_it_out.label _t() at l.1527 — supports verdict); gift anchor defaults graph.py l.383-388 (exact 4 strings); A6 categorical chips turn1_selector.py l.138 (label==filter_value==v[value] — supports verdict); A2 chip count turn1_selector.py l.138/l.105 (count from hits_count — supports MATCH); unsafe_deflect graph.py l.3301 (single sentence — supports MATCH)",
+    "D-scope-breadth-sanity: artifact stays within structural/semantic turn-1 fidelity boundary as declared; no out-of-lane files addressed",
+    "D-senior-engineer-eyebrow: executive-summary tally internal-consistency checked (defect found, G-R1-PF-2); boundary section honestly states structural-not-pixel (l.9)",
+    "D-drafting-residue-scrub: grep for HTML comments/TODO/FIXME/WIP/draft markers returned 0 hits",
+    "title/content drift: H1 'Mockup UX Fidelity Report' fulfilled by the A1-A10 + modes + tiers + copy fidelity matrix — no drift"
+  ],
+  "scope_not_covered": [
+    "step3-trigger-file-unreadable: .claude/gates/pre-flight/types/research.md (entire .claude/gates/pre-flight/ subtree absent in project); ran inlined research failure mode instead (exec-summary + citation-bearing claims both present)",
+    "step4 predicate routing: D-T3-load-bearing N/A (no-T3-citations — all citations are file-anchors); D-completeness-risk-coverage N/A (not-design-plan); D-user-intent-coverage N/A (generator-type-not-plan); D-counter-suspension-sentinel-discipline N/A (generator-type-not-plan); D-plan-dag-cycle N/A (generator-type-not-plan); D-verification-claim-presence N/A (generator-type-not-plan)",
+    "conformance-report and knowledge-store evidence cited by reference (Gap-1..8, C-23, v2-gap-plan-label-resolution-validation-missing): not re-traced — fresh-eyes no-knowledge-store constraint; recorded unverifiable-external-source",
+    "A4 engagement-of-preview state inheritance: report self-marks NOT-EXERCISED (turn-2-only); not independently verified, consistent with declared scope"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-mockup-ux-fidelity-r1.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-mockup-ux-fidelity-r1.json"
+  }
+}

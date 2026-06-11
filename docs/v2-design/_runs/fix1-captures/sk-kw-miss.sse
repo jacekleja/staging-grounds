@@ -1,0 +1,10 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: "T\u00e1to ot\u00e1zka je mimo m\u00f4jho zamerania \u2013 r\u00e1d v\u00e1m pom\u00f4\u017eem s v\u00fdberom produktu, kateg\u00f3rie alebo zna\u010dky."
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 1, "tool_calls": [], "timestamps": {"custom_event_ms": null, "first_partial_ms": 3334.3448489904404, "done_ms": 3337.657468015095}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": null, "mode": "out_of_scope", "tier": "", "composition": "", "tier_signals": {}, "classifier_path": "", "dispatch_rationale_token": "static_out_of_scope:po\u010dasie:sk", "confidence_signal": "high", "triggering_keyword": "po\u010dasie", "verbatim_query": "ak\u00e9 je dnes po\u010dasie"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 2, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb789-2287-7991-891d-f068affa2c58]"
+

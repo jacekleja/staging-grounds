@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.1",
+  "task": "fix1-out-of-scope-design-preflight",
+  "round": 1,
+  "round_cap": null,
+  "agent": "pre-flight-gate",
+  "verdict": "request-changes",
+  "gaps": [
+    {
+      "id": "G-R1-PF-1",
+      "description": "Dual-write llm_call_count edits (_deflection_update + _emit_deflection_classification) are specified only in the 'Second-order chains §B' narrative, not in the numbered 'Files to modify, in order' build list (items 1-3 stop at rewriting out_of_scope_deflect). For a build-verbatim implementer the two required helper-signature edits are in-scope-but-skippable rather than unambiguously in-scope.",
+      "classification": "important",
+      "category": "missing-docs",
+      "evidence": "Integration Points numbered list = 3 items; the two helper edits live only under 'Second-order chains §B'. Both premises confirmed on disk: [verified: conversational-search/src/conversational_search/agent/graph.py (_emit_deflection_classification)] line 3213 llm_call_count=0 hardcoded; [verified: conversational-search/src/conversational_search/agent/graph.py (_deflection_update)] line 3233 'llm_call_count': 0 hardcoded. A checklist-following implementer edits out_of_scope_deflect's call sites (llm_call_count=1) without adding the param to both helpers -> TypeError on unexpected kwarg, or (if only _deflection_update is patched) emitted turn-classification telemetry under-reports the call as 0 while state reports 1 -- the silent divergence §B warns of.",
+      "fix_hint": "[dimension: D-senior-engineer-eyebrow] Promote both helper edits into the numbered 'Files to modify, in order' list as an explicit step 4: add optional `llm_call_count: int = 0` param to BOTH _deflection_update and _emit_deflection_classification; out_of_scope passes 1, support/unsafe keep default 0 (backward-compatible per §C). This is the one step that closes the success-criterion-(b) risk."
+    }
+  ],
+  "scope_covered": [
+    "active_rubrics non-empty (['generator-preflight']); no coercion needed",
+    "Misroute check: sketch markers present (Proposed Approach + Rejected Alternatives) -> valid sketch route",
+    "D-citation-verifiability: re-traced 12 graph.py anchors + mode_detection.py:129 + custom_events.py:27/99 by name; all resolve (uniform ~33-47 line downward drift, name-recoverable)",
+    "Success-criterion (b) premise VERIFIED TRUE: _emit_deflection_classification line 3213 and _deflection_update line 3233 both hardcode llm_call_count=0",
+    "out_of_scope_deflect (3317-3334) current state matches sketch problem statement: static English string, zero LLM calls, emits only via _emit_deflection_text",
+    "A1 language-source grounded: mode_dispatch (3255) and support_deflect (3290) both use _resolve_request_language(runtime, config) -- the established deflect-family pattern",
+    "Verbatim system-prompt text checked against contract: short (<=18 words), polite, NO-apologies (double-enforced), language-adaptive ({language} = full English name)",
+    "Single-LLM-call shape: one ainvoke; llm_call_count 0->1; budget 1<=max_llm_calls_per_turn_1 (set-semantics confirmed at handle_regular_turn:2006/2060)",
+    "Risk (a) astream->ainvoke+TAG_NOSTREAM deviation: TAG_NOSTREAM idiom confirmed in-codebase (graph.py:25 import, :2564 comment); DEFLECTION_TEXT_KIND='lbx.deflection_text' at custom_events.py:27; deviation sound, U1 non-blocking because current static path never streamed so ainvoke cannot regress the UI",
+    "Citation line-drift surfaced as a low-severity advisory markdown flag (names resolve; not a formal gap)"
+  ],
+  "scope_not_covered": [
+    "D-user-intent-coverage (generator-type-not-plan)",
+    "D-T3-load-bearing (no-T3-citations)",
+    "Proxy SSE handler not present in conversational-search/src -- U1's proxy grep targets a subsystem outside this repo (unverifiable-external-source); non-blocking per the current-static-path argument",
+    "Knowledge-store citations in 'Knowledge Consulted' (deflection-detection-english-only-vocabulary.md, marathon-findings-digest.md) not re-traced -- fresh-eyes no-knowledge constraint"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/fix1-out-of-scope-design-R1-preflight.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/fix1-out-of-scope-design-R1-preflight.json"
+  }
+}

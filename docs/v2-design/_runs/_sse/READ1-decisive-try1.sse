@@ -1,0 +1,10 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 2, "phase_total": null, "source_node": "handle_regular_turn", "iteration": null}}
+
+data: {"__meta__": {"version": 1, "tool_call_count": 1, "token_count": 0, "tool_calls": [{"index": 0, "name": "search_products_tool", "started_at_ms": 3124.525058985455, "ended_at_ms": 3124.525058985455}], "timestamps": {"custom_event_ms": 624.8724779870827, "first_partial_ms": null, "done_ms": 3146.1390439944807}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": "local-system-prompt@bd5ebd03+overlay-none+mode-none+modetpl-none+sig-none", "mode": "product_search", "tier": "zero_results", "composition": "question_led", "tier_signals": {"result_count": 0, "top_share_max": 0.0, "axis_entropy": 0.0, "filled_axes": 0, "has_brand_token": false, "has_model_token": false, "query_token_count": 0, "price_spread": 0.0, "max_axis_top_share": null, "diversity_score_D": 0.4, "tier": "zero_results", "composition": "question_led", "confidence": 0.0, "classifier_path": "hot-path", "signals_conflict": false, "extra": {}, "legacy_llm_prefix_tier": "shapeable", "legacy_llm_prefix_composition": "refinement_chips_with_hatch", "composition_table_composition": "question_led", "composition_table_live": true, "composition_table_fallback": true, "composition_table_live_switch_applied": true}, "classifier_path": "hot-path", "dispatch_rationale_token": null, "confidence_signal": null, "triggering_keyword": null, "verbatim_query": null}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 3, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb799-00f0-7830-9f71-e84aaf231ba4]"
+

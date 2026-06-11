@@ -1,0 +1,10 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: "That's outside what I can help with, but feel free to ask about any product, category, or brand!"
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 1, "tool_calls": [], "timestamps": {"custom_event_ms": null, "first_partial_ms": 3487.323840003228, "done_ms": 3490.0677440164145}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": null, "mode": "out_of_scope", "tier": "", "composition": "", "tier_signals": {}, "classifier_path": "", "dispatch_rationale_token": "static_out_of_scope:weather:en", "confidence_signal": "high", "triggering_keyword": "weather", "verbatim_query": "what is the weather today"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 2, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb787-ff03-7e20-ba8f-bcbbe45f416b]"
+

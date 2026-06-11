@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.1",
+  "task": "v2-ux-fidelity-fix-plan-preflight",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "pre-flight-gate",
+  "verdict": "request-changes",
+  "gaps": [
+    {
+      "id": "G-R1-PF-1",
+      "description": "FIX-4 WIRED branch has no properly-typed code-authoring subtask, and the wire (if it lands) falls outside the dependency sets of subtask 8 (code validation) and subtask 9 (live verify FIX-4). Main plan routes FIX-4 wiring into subtask 4 (Agent: researcher) and 'records' it in subtask 7 (Agent: implementer, but explicitly doc-only, not a code change). Subtask-4.md adds a contradictory third option ('OR the orchestrator inserts an implementer follow-up'). subtask 8 (Depends On 2,3,7) validates a wire 'recorded in subtask 7' that carries no code diff; subtask 9 (Depends On 7) would live-verify a wire whose code-landing subtask is not in its dependency chain.",
+      "classification": "important",
+      "category": "missing-feature",
+      "evidence": "[verified: docs/v2-design/plan-v2-ux-fidelity-fixes-subtask-4.md (Agent: researcher / 'OR the orchestrator inserts an implementer follow-up', l.11)] vs [verified: docs/v2-design/plan-v2-ux-fidelity-fixes-subtask-7.md ('documentation deliverable, not a code change', l.9)] vs plan l.64 (subtask 9 Depends On: 7) and l.84 ('any FIX-4 wire from subtask 4 recorded in subtask 7')",
+      "fix_hint": "[dimension: D-plan-dag-cycle] Add an explicit implementer-typed subtask for the FIX-4 WIRED branch (or scope subtask 7 to include the wiring code), make subtask 8 and subtask 9 depend on that code-landing subtask, and remove the researcher-lands-code provision from subtask-4.md so the WIRED branch has a single unambiguous owner. should-be-issue"
+    }
+  ],
+  "scope_covered": [
+    "DAG validity of Subtask Summary Table: verified strict topological order (every Depends On references a strictly lower-numbered subtask) — no forward references, no cycles; self-audit claim TRUE",
+    "Checklist-to-subtask-to-CC mapping: CL-1..CL-8 each map to >=1 subtask AND >=1 completion criterion (CL-1->st2/5/8,CC-1/2; CL-2->st1,CC-2; CL-3->st3/6,CC-3; CL-4->st3/6,CC-3; CL-5->st4/7/9,CC-4; CL-6->st7,CC-5; CL-7->st7,CC-5; CL-8->st8,CC-6)",
+    "CL-9 traceability: maps to subtasks 5/6/9 and is substantively covered by CC-2/CC-3/CC-4 (live reads under _runs/) but no CC names it explicitly (low advisory, markdown sibling)",
+    "Operator decision D1 (out_of_scope -> FULL LLM-with-guidebook replacing hardcoded English template): faithfully reflected in decisions block l.11, CL-1, subtasks 1/2",
+    "Operator decision D2 (no fabricated/machine translations; A10 DEFERRED; A6 CONDITIONAL on real upstream localized data): faithfully reflected in decisions block l.12-14, CL-5/CL-6, subtasks 4/7",
+    "Conditional subtask 9 (LIVE verify FIX-4, only if WIRED) clean degradation on DEFERRED: verified functionally clean (CL-5 routes to subtask 7 deferral doc, CC-4 covers both branches); skip-as-satisfied semantic for subtask 10's dependency is unstated (low advisory, markdown sibling)",
+    "English-keyword-only out_of_scope detection constraint carried into FIX-1 live verification: verified in Coupling Analysis l.48 and CC-2 (force OUTPUT language via metadata on an English-keyword out_of_scope query; NOT a Slovak prompt)",
+    "D-citation-verifiability: verified all four load-bearing graph.py function anchors against conversational-search/src/conversational_search/agent/graph.py: out_of_scope_deflect@3270 (cited l.3270-3287 PASS), _render_turn1_preview_block@1419 (cited l.1419-1475 PASS), _render_gift_advisor_takeover_block@1509 (cited l.1509-1569, A10 plumbing l.1518 PASS), _handle_gift_advisor_turn1@1923 (cited l.1923-1975 PASS)",
+    "D-scope-breadth-sanity: 6 gap items (4 PARTIAL + 1 DIVERGENT + 1 NOT-EXERCISED) map to FIX-1/FIX-2/FIX-3/FIX-4 + A10/A4 dispositions; plan stays in lane",
+    "D-drafting-residue-scrub: grep for TODO/FIXME/WIP/XXX/HTML-comment/draft-marker/editorial-question returned zero hits",
+    "D-unverified-load-bearing: no [Unverified]/[Inferred] tags present; the load-bearing llm_call_count==1 claim (A1) is explicitly flagged for implementer confirmation (l.49)",
+    "All 8 referenced per-subtask bodies (subtask 1-7,9) exist on disk under docs/v2-design/",
+    "Misroute check: artifact has Subtask Summary Table + numbered subtasks + Goal + Completion Criteria — confirmed plan-type structural markers"
+  ],
+  "scope_not_covered": [
+    "step3-trigger-file-unreadable: .claude/gates/pre-flight/types/plan.md (entire .claude/gates subtree absent in worktree; plan-type structural checks performed from the delegation success_criteria instead)",
+    "step4-trigger-file-unreadable: .claude/gates/pre-flight/dimensions/D-plan-dag-cycle.md (DAG check performed manually)",
+    "step4-trigger-file-unreadable: .claude/gates/pre-flight/dimensions/D-verification-claim-presence.md (Completion Criteria check performed manually)",
+    "step4-trigger-file-unreadable: .claude/gates/pre-flight/dimensions/D-user-intent-coverage.md (predicate fired: generator_type==plan; no user-intent.md supplied in delegation inputs)",
+    "D-counter-suspension-sentinel-discipline N/A: plan contains no audit-proactive-active or audit-counter-campaign-suspend sentinel",
+    "D-T3-load-bearing N/A: no T3 web citations in artifact",
+    "fresh-eyes constraint: knowledge-store entries cited under 'Knowledge Consulted' (l.23-27) not re-traced (no knowledge tool by design; judged plan on internal soundness)"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/v2-ux-fidelity-fixes-plan-preflight.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/v2-ux-fidelity-fixes-plan-preflight.json"
+  }
+}

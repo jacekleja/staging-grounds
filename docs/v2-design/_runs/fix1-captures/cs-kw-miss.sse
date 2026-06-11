@@ -1,0 +1,10 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: "Tato ot\u00e1zka je mimo m\u016fj z\u00e1b\u011br \u2013 r\u00e1d v\u00e1m pomohu s v\u00fdb\u011brem produktu, kategorie nebo zna\u010dky."
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 1, "tool_calls": [], "timestamps": {"custom_event_ms": null, "first_partial_ms": 4787.691613979405, "done_ms": 4790.521297982195}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": null, "mode": "out_of_scope", "tier": "", "composition": "", "tier_signals": {}, "classifier_path": "", "dispatch_rationale_token": "static_out_of_scope:po\u010das\u00ed:cs", "confidence_signal": "high", "triggering_keyword": "po\u010das\u00ed", "verbatim_query": "jak\u00e9 je dnes po\u010das\u00ed"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 2, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb789-30b3-7b00-9b28-c96a8736493f]"
+
