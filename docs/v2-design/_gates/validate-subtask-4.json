@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.1",
+  "task": "validate-subtask-4",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "validator",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Both rubrics satisfied with no critical/important gaps. code-vs-spec: (a) Gap 1 (C-01) closed — graph.py:2278 sets deterministic_preview_response = preview_response, so the NO_PREVIEW sentinel passes through; downstream the response-is-not-None branch (2325) skips _emit_deflection_text for NO_PREVIEW (2326), leaves llm_call_count unchanged (no second LLM call), and serializes the sentinel at 2381 with skip_validators=True. The renderer (_render_turn1_preview_block, 1145-1206) emits NO `products` key in any composition branch, and empty blocks resolve to NO_PREVIEW via _is_empty_turn1_preview_block (1217-1228). (b) Gap 8 (C-13/C-14) closed — config.py:86 flips composition_table_live False->True; _resolve_product_search_tier_and_composition (922-974) gates the table on mode==product_search AND composition_table_live, table maps exploratory->question_led (96), and the question_led renderer (1154-1171) emits shape, question.prompt, question.answers[>=2], demoted carousel, browse_all_link, and chat_affordance via the tier-affordance gate (1202). Tests added in test_graph_emit.py (TestGap1AndGap8: test_gap1_6th_edge_fallback_contains_no_products_block, test_gap8_exploratory_tier_renders_question_led_with_live_table) assert correct behavior; test_turn1_call_budget.py and test_config.py updated to match. constraint-compliance: C-15 (lbjson chips extended not replaced — else-branch at 1197-1201 preserves chips:[{...,facet}]), C-16 (lbx.no_preview intact — sentinel path 2380-2382 fires _serialize_no_preview_sentinel), C-17 (turn-2 question_led pivot — impl-report cites graph.py:2469-2474 + test_inherited_question_led_emits_change_the_question_pivot), C-18 (work_status sequence intact — _emit_work_status at 2311 unchanged; 530 tests incl. TestWorkStatusOrderingInvariant pass), C-19 (<=1 LLM call turn-1 — NO_PREVIEW path adds zero calls; three live runs show llm_call_count=1). The global composition_table_live=True flip does NOT alter shapeable/decisive/intractable behavior: the table maps each tier to its own composition (shapeable->refinement_chips_with_hatch, 95), verified by code and the guitar live run (tier=shapeable, composition=refinement_chips_with_hatch with switch active). impl-report ## Verification is present and non-degenerate (Exercised: three documented cache-MISS live SSE runs + unit coverage; Not exercised, and why: decisive/intractable live and turn-2-live with bounded reasons + unit-test substitutes). Unit suite re-run by validator: 530 passed in 1.06s.",
+  "scope_covered": [
+    "D-spec-coverage: C-01 (Gap 1) traced graph.py:2278/2325/2380-2382 + renderer 1145-1206; C-13/C-14 (Gap 8) traced config.py:86, _resolve_product_search_tier_and_composition 922-974, table 93-98, question_led renderer 1154-1171",
+    "D-edge-cases: empty-options branches (1155, 1173) return NO_PREVIEW-eligible empty block; zero-hit NO_PREVIEW path covered by test_turn1_product_search_no_preview_emits_sentinel_without_llm",
+    "D-error-paths: no new throw/catch sites; NO_PREVIEW handled as deterministic outcome not exception; _maybe_retry_on_tool_call_limit is no-op on deterministic-preview path (2363-2367)",
+    "D-integration-points: change is intra-module (handle_regular_turn one-line assignment + config field flip); no new cross-module edges; consumers of composition table (909-913, 720-724) unchanged",
+    "D-constraint-compliance: globbed .claude/knowledge/constraints/**/*.md; conversational-agent-graph-gate-insertion-rules.md (covers graph.py) = does-not-apply (no new gate node); conversational-agent-langgraph-implementation-patterns.md (covers graph.py) = applies, compliant (test uses .value unwrap, no new node); conversational-search-env-file-overrides-code-defaults.md (covers config.py) = applies, deployment caveat satisfied (live runs show composition_table_live=true active at runtime); platform/platform-constraints.md read",
+    "D-consistency: comment style, COMPOSITION_ENUM indexing, AIMessage sentinel pattern consistent with surrounding renderer code",
+    "D-untested: every changed branch covered — Gap1 fallback (test_gap1_6th_edge_fallback_contains_no_products_block), NO_PREVIEW (test_turn1_product_search_no_preview_emits_sentinel_without_llm), Gap8 question_led (test_gap8_exploratory_tier_renders_question_led_with_live_table), config flip (test_composition_table_live_default_is_live), invariant (test_product_search_tier_maps_to_authoritative_composition[shapeable/exploratory/decisive/intractable])",
+    "D-exercise-evidence: impl-report ## Verification present + non-degenerate (three cache-MISS live SSE artifacts cited + unit coverage; Not-exercised disclosures bounded)",
+    "C-15/C-16/C-17/C-18/C-19 hard invariants verified against code + impl-report + 530-pass suite",
+    "validator-run unit suite: 530 passed in 1.06s"
+  ],
+  "scope_not_covered": [
+    "D-concurrency-idempotency: N/A (no-shared-state) — change is a config flag default + a deterministic local assignment, no locks/retries/concurrent callers introduced",
+    "D-security: N/A (no-untrusted-input, no-privilege-boundary, no-auth-code) — no exec/subprocess/secret/injection surface in the diff",
+    "D-sketch-adherence: N/A (no-design-phase-sketch-for-this-subtask) — no {TASK}-R{N}-sketch.md present in worktree",
+    "Live SSE re-execution: not re-run by validator (read-only mandate; live runs validated from impl-report cited artifacts + validator unit re-run)",
+    "decisive/intractable and turn-2 question_led pivot live spot-checks: covered by passing unit tests, not independently re-run live (consistent with impl-report bounded Not-exercised disclosure)"
+  ],
+  "active_rubrics": ["code-vs-spec", "constraint-compliance"]
+}

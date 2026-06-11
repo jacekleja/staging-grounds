@@ -19,7 +19,7 @@ These branch the plan materially. Do not skip them.
 
 2. **Multi-language in scope?** The product serves `.sk` shops (`language: sk`). Detection is English-only static keywords. Slovak/Czech `unsafe` prompts bypass the hard-refuse short-circuit (filed: `iss_3712bb402a94`, med). Is Slovak/Czech mode detection required for final state? And if yes: quick keyword extension (config + code, lowest blast radius) or generalized multi-language detection layer (changes the keyword-only dispatch contract — architecture work)?
 
-3. **Tier vocabulary — which is truth?** Live emits `exploratory` / `shapeable` / `zero_results`. Design specifies `narrow` / `mid` / `broad` / `overwhelming`. Signals are computed correctly; only the vocabulary/mapping differs. Adopt the design enum (rename live values) or ratify the live vocabulary and update the design?
+3. **Tier vocabulary — which is truth?** ~~Live emits `exploratory` / `shapeable` / `zero_results`. Design specifies `narrow` / `mid` / `broad` / `overwhelming`. Signals are computed correctly; only the vocabulary/mapping differs. Adopt the design enum (rename live values) or ratify the live vocabulary and update the design?~~ **RESOLVED** — ratified live/R4 vocabulary as canonical; see `docs/v2-design/tier-vocabulary-reconciliation.md`.
 
 4. **Composition-fidelity bar:** For `gift_advisor` and `comparison`, how exactly must the realized build match the prototype's specific UI compositions? Pixel-matched (anchored category chips, side-by-side table) vs. functionally equivalent (correct mode + no-products-on-turn-1 + conversational)? This determines whether gap 4 and gap 5 are template edits or structural work.
 
@@ -44,6 +44,7 @@ MODE DISPATCHER  (keyword + LLM-guarded detection)
       ▼
 TIER CLASSIFIER  (signature lookup or hot-path derivation)
   narrow │ mid │ broad │ overwhelming
+  (live/R4: decisive │ shapeable │ exploratory │ intractable — see tier-vocabulary-reconciliation.md)
       │
       ▼
 COMPOSITION RENDERER  (tier-specific UI, NO products on turn 1)
@@ -70,12 +71,14 @@ COMPOSITION RENDERER  (tier-specific UI, NO products on turn 1)
 
 ### Compositions per tier (design spec)
 
-| Tier | Composition | What it renders |
-|---|---|---|
-| `narrow` | `refinement_chips` | 2–4 inline axis-prefixed chips; no browse hatch; skip below 30 results |
-| `mid` | `refinement_chips_with_hatch` | 4 chips (deepened stack: lvl_2→lvl_1→brand→price) + "Just browsing" quiet link + always-on chat affordance |
-| `broad` | `question_led` | One diagnostic question + 2 answer cards + sub-search carousel (demoted) + "Show all N →" + chat affordance + "← Change the question" on turn 2 |
-| `overwhelming` | `hard_fork` | 2 strong fork cards + "Show all N sorted by popularity" link; no carousel |
+> **Vocabulary note:** the design corpus uses R2 (count-coded) tier names; live/R4 code uses shape-coded names. The mapping is 1:1 — see `docs/v2-design/tier-vocabulary-reconciliation.md` for the full ratified table. The "Live value" column below is a quick reference.
+
+| Tier (design alias) | Live value (R4) | Composition | What it renders |
+|---|---|---|---|
+| `narrow` | `decisive` | `refinement_chips` | 2–4 inline axis-prefixed chips; no browse hatch; skip below 30 results |
+| `mid` | `shapeable` | `refinement_chips_with_hatch` | 4 chips (deepened stack: lvl_2→lvl_1→brand→price) + "Just browsing" quiet link + always-on chat affordance |
+| `broad` | `exploratory` | `question_led` | One diagnostic question + 2 answer cards + sub-search carousel (demoted) + "Show all N →" + chat affordance + "← Change the question" on turn 2 |
+| `overwhelming` | `intractable` | `hard_fork` | 2 strong fork cards + "Show all N sorted by popularity" link; no carousel |
 
 ### Conversational compositions (§6)
 

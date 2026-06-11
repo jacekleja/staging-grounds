@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.1",
+  "task": "subtask-10-reverify-preflight",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "pre-flight-gate",
+  "verdict": "request-changes",
+  "gaps": [
+    {
+      "id": "G-R1-PF-1",
+      "description": "C-24 summary line (report line 2) overstates the shared-brand co-occurrence set: it names Fender/Pasadena/Yamaha/Takamine as byte-identical 'across en/sk/cs/cz', but the en SSE contains none of Pasadena/Yamaha/Takamine (en chips = Ernie Ball/PSD Guitars/DR Strings/Fender). The authoritative cross-language identity table (lines 108-110) correctly scopes those three brands to (sk/cs/cz) and (cs/cz). The C-24 grading itself is sound and methodologically correct; this is a precision defect in one summary sentence.",
+      "classification": "important",
+      "category": "incorrect-implementation",
+      "evidence": "[verified: docs/v2-design/_runs/subtask10-reverify/v2-en-guitar-miss.sse] en chips = {Ernie Ball, PSD Guitars, DR Strings, Fender}, no Pasadena/Yamaha/Takamine; contradicts report line 2 brand list scoped 'across en/sk/cs/cz'. Authoritative table at report lines 108-110 scopes these to (sk/cs/cz)/(cs/cz).",
+      "fix_hint": "Reword report line 2 so the brand list scoping matches the cross-language table: Fender is the only brand identical across all four; Pasadena/Yamaha across sk/cs/cz; Takamine across cs/cz. should-be-issue if not fixed this round."
+    }
+  ],
+  "scope_covered": [
+    "active_rubrics coerced confirmed present [generator-preflight]",
+    "misroute detection: research markers present (executive-summary C-23/C-24 lines + citation-bearing claims)",
+    "D-citation-verifiability: spot-checked 4 SSE captures (en/sk/cs/cz-alias), v4-cs-kytara-delete.log, v4-cs-and-cz-kytara-post-miss-select.log, plus 4 binding-methodology section anchors and the cz-alias remediation sibling report — all resolve via worktree-first Path-C fallback to main repo (docs/ non-symlinked)",
+    "D-citation-verifiability: cross-checked decoded SSE prose against per-language report prose (en=English, sk=Slovak diacritics, cs=Czech, cz-alias=byte-identical Czech to cs)",
+    "D-unverified-load-bearing: grep for [Unverified]/[Inferred] returned zero tags",
+    "D-scope-breadth-sanity: report stays in-lane (output localization on four delegated rows); scope boundary on translated non-brand chip labels explicitly stated",
+    "D-senior-engineer-eyebrow + title/content-drift: title 'multilingual label chip identity regression report' matches deliverable (C-23 localization + C-24 chip-identity re-grade)",
+    "D-drafting-residue-scrub: grep for residue patterns returned zero hits",
+    "C-24 methodology: confirmed all four reads on composition=refinement_chips_with_hatch; SSE composition_table_live_switch_applied=true corroborates the 'prior FAIL = question_led composition-mismatch artifact' explanation; identity graded only on co-occurring brands",
+    "structural completeness: verdicts (C-23/C-24), per-language evidence, cross-language comparison, scope boundary, ## Verification section, disposition lines (Gate-required/Peer-review/Completeness-risk) all present"
+  ],
+  "scope_not_covered": [
+    "step3-trigger-file-unreadable: .claude/gates/pre-flight/types/research.md (entire .claude/gates/pre-flight subtree absent in worktree); ran always-on dimensions plus delegation-supplied success criteria as the research-type contract",
+    "live read re-execution: out of scope per delegation (fresh-eyes pre-consumption gate, judge as-written)",
+    "HIT replay and input-dispatch detection: report's own declared scope boundary, not a gate gap"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-multilang-reverify-r1.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-multilang-reverify-r1.json"
+  }
+}

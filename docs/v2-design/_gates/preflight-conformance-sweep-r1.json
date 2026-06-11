@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.1",
+  "task": "subtask-11-conformance-preflight",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "pre-flight-gate",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Declared goal (verbatim H1 lede): \"All eight gaps and all cross-cutting gates pass on the working-tree post-fix build... Every V1-V20 row was forced to a fresh cache MISS before each live read (C-25). The V2 guitar/en MISS->HIT byte-identical replay is confirmed (C-26). C-23/C-24 incorporated by reference from the gated multilingual report. Bucket B production-rollout safety is consciously deferred.\" Deliverable that fulfils it: the per-gap/per-gate conformance table (lines 69-83) + C-25 per-row delete/MISS table (lines 24-44) + C-26 comparator section (lines 50-65). (a) Title/content: no drift, body is the post-fix conformance sweep the lede promises. (b) [Unverified]/[Inferred] tags: none present; no load-bearing unverified claims. (c) Scope breadth: in-lane; clause-by-clause contract reconciliation correctly deferred to Subtask 12 (lines 156,174). (d) Citations: 11 file/anchor citations re-traced, 11 pass, 0 fail. C-26 evidence (v2-guitar-delete.log DELETE-1/rows_after=0, v2-guitar-post-miss-select.log hit_count=0 fp local-system-prompt@bd5ebd03+..., v2-guitar-post-hit-select.log hit_count=1, v2-guitar-miss.sse MISS/product_search/shapeable/refinement_chips_with_hatch, v2-guitar-hit.sse HIT) all match claim text verbatim; section anchors multilingual-report § Raw SSE Artifacts, freshness-report § Verbatim MISS/HIT Procedure and § Boundaries all resolve; both by-reference reports exist. (e) Research failure mode (thorough-looking-but-wrong) considered: attacked both load-bearing claims — C-26 comparator tc/len/SHA corroborated by actual SSE payloads and the HIT-path llm_call_count=null matches the stated reconstruction caveat (not a glossed contradiction); C-25 per-row table cross-substantiated by post-miss-all-rows.log (6 rows all hit_count=0) and final-db-state.log (only guitar=1, V7-V15 absent => 0 rows written). Failure mode not present. (f) Research structural elements: executive-summary lede, standard disposition lines (Gate-required/Peer-review/Completeness-risk/Pre-emission self-audit), and ## Verification Exercised/Not-exercised section all present. (g) T3 citations: none (N/A). Self-audit's 3 reconciliations (V1 no-write, V7-V15 MISS-only, C-24 prior-FAIL-vs-PASS) confirmed sound; Bucket B explicitly consciously deferred (line 150).",
+  "scope_covered": [
+    "active_rubrics resolved as [generator-preflight] (delegation supplied it explicitly; no coercion needed)",
+    "D-unverified-load-bearing: grepped [Unverified]/[Inferred] across artifact — zero hits, no load-bearing unverified claims",
+    "D-scope-breadth-sanity: artifact stays within V1-V20 conformance sweep + C-23/C-24-by-reference + Bucket-B-deferral boundary; contract reconciliation deferred to Subtask 12",
+    "D-citation-verifiability: re-traced 11 file/anchor citations (C-26 SSE pair + delete log + both post-select logs + V1 post-miss log + 3 section anchors + 2 by-reference report existence checks) — 11/11 pass",
+    "D-senior-engineer-eyebrow: checked research-typical omissions — executive summary present, contradiction reconciliations present and sound, no missing rollback/concurrency concern applicable to a read-only conformance report",
+    "D-drafting-residue-scrub: no HTML comments / TODO / FIXME / WIP / draft markers / inline editorial questions found",
+    "C-26 internal support: comparator SHA-equal + len-equal + tc-equal + hit_count 0->1 corroborated by v2-guitar-miss.sse and v2-guitar-hit.sse payloads",
+    "C-25 internal support: per-row rows_after_delete=0 verified for V1/V2 captures; aggregate post-miss-all-rows.log and final-db-state.log substantiate the per-row 0-rows/hit_count=0 claims",
+    "Eight-gap verdict table coherence: each PASS backed by named decoded assertions; V6 direct-renderer and V7-V15 MISS-only exceptions explicitly marked",
+    "Bucket B deferral check: explicitly recorded as consciously deferred (line 150) with operator-handoff checklist",
+    "Verification section: Exercised / Not-exercised both present (lines 160-174)"
+  ],
+  "scope_not_covered": [
+    "step3-trigger-file-unreadable: .claude/gates/pre-flight/types/research.md (ENOENT in both worktree and main repo) — research-type structural checks run from always-on dimensions + delegation success_criteria, not the absent contract",
+    "unverifiable-observed-or-external-source: .agent_context/logs/ bash-log citations (bash_main_20260610233220_ktpf.log line 12; bash_main_20260610233226_4equ.log line 18; bash_main_20260610233732_j4mv.log line 46) are transient session logs outside canonical citation forms — not locally re-traceable, not flagged",
+    "Per-row post-MISS DB-state captures for V3-V20 are backed by aggregate snapshots (post-miss-all-rows.log, final-db-state.log) rather than 1:1 per-row select logs; the per-row table's granularity exceeds its per-row capture-file granularity. Non-blocking traceability observation — the aggregate snapshots substantiate the load-bearing 0-rows/hit_count=0 claims, and clause-by-clause per-row reconciliation is the work the report explicitly defers to the Subtask 12 coherence audit",
+    "Did not re-run any live reads, tests, or SSE captures (fresh-eyes pre-consumption gate, per delegation); did not consult the knowledge store"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-conformance-sweep-r1.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-conformance-sweep-r1.json"
+  }
+}

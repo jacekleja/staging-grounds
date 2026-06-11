@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.1",
+  "task": "subtask-11-conformance-preflight",
+  "round": 2,
+  "round_cap": null,
+  "agent": "pre-flight-gate",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Declared goal (line 1 verbatim): 'All eight gaps and all cross-cutting gates pass on the working-tree post-fix build... Every LIVE read (V1-V5, V7-V20) was forced to a fresh cache MISS before execution (C-25); V6 is a direct-renderer exercise with no live read and is outside the forced-MISS scope.' Deliverable fulfilling it: per-gap/per-gate conformance table (all PASS) backed by per-row delete+MISS cache-freshness table and resolving log citations. (b) Zero [Unverified]/[Inferred] tags. (c) Revision touched only lines 1/22/43/44/81 per spec; in-lane. (d) 10/10 file/section-anchored citations resolve: the two CHANGED (line 43 v3-sk-gitara-delete.log, line 44 v4-cs-kytara-delete.log) read verbatim as DELETE 1 / rows_after_delete=0 matching the claim; the 8 PRE-EXISTING (lines 12,18,46,53,54,55,65,154) intact and untouched, spot-traced line 53/55 and the two freshness-report section anchors (§ Verbatim MISS/HIT Procedure -> heading line 42; § Boundaries -> heading line 173). (e) Research failure mode (unsupported executive summary) considered and absent: line-1 C-25 scoping is grounded by the table and restated identically at lines 22 and 81. (f) Executive summary at top + citation-bearing claims present; disposition lines 176-179 and ## Verification (line 158) present. C-25 scoped claim is byte-consistent across lines 1/22/81; cache-freshness table lists exactly V1-V5+V7-V20 with V6 absent, matching; every live row shows rows_after=0, so C-25 PASS is correct. Line-163 'V1-V20 forced MISS' is non-material shorthand given V6's separate adjacent listing at line 165 and the authoritative scoped claim elsewhere.",
+  "scope_covered": [
+    "active_rubrics supplied as [generator-preflight]; no coercion needed",
+    "Step1 misroute: research markers present (executive summary at line 1 + citation-bearing claims throughout)",
+    "D-citation-verifiability: 10 file/section-anchored citations enumerated; 2 changed (v3/v4 delete logs) read verbatim and matched; 8 pre-existing confirmed intact; 2 freshness-report section anchors confirmed (lines 42, 173)",
+    "D-unverified-load-bearing: zero [Unverified]/[Inferred] tags",
+    "D-scope-breadth-sanity: revision confined to lines 1/22/43/44/81 per delegation spec; in-lane",
+    "D-drafting-residue-scrub: zero HTML comments / TODO / FIXME / WIP / draft markers",
+    "D-senior-engineer-eyebrow: title/content drift check — declared goal and deliverable agree; no nearby-easier-question drift",
+    "C-25 internal consistency: scoped claim byte-consistent across lines 1/22/81; cache-freshness table (lines 26-44) lists exactly V1-V5+V7-V20, V6 absent, matching the claim; every live row rows_after=0; PASS verdict correct",
+    "Regression: no other verdict altered; 8 gaps + C-26 + suites + support all retain PASS; all pre-existing citations intact",
+    "Line-163 'V1-V20 forced MISS' shorthand evaluated against scoped C-25 claim — judged non-material (V6 separately listed as direct renderer at line 165)",
+    "Disposition lines (176-179) and ## Verification section (158) present"
+  ],
+  "scope_not_covered": [
+    "step3-trigger-file-unreadable: .claude/gates/pre-flight/types/research.md (subtree .claude/gates/ absent in this environment); research structural checks performed from inlined marker contract instead",
+    "step4-trigger-files-unreadable: .claude/gates/pre-flight/dimensions/* (subtree absent); no Step-4 predicate fired for research generator_type anyway except none applicable",
+    "unverifiable-observed-or-external-source: .agent_context/logs/bash_main_* citations on lines 12, 18, 46 are observed-run logs, not locally retraceable"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-conformance-sweep-r2.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-conformance-sweep-r2.json"
+  }
+}

@@ -1,0 +1,10 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: "Muziker Support m\u016f\u017ee ov\u011b\u0159it va\u0161i objedn\u00e1vku. Pou\u017eijte https://www.muziker.sk/kontakt a uve\u010fte detaily objedn\u00e1vky."
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 1, "tool_calls": [], "timestamps": {"custom_event_ms": null, "first_partial_ms": 845.3777559916489, "done_ms": 847.3760719934944}, "turn_classification": {"llm_call_count": 0, "prompt_fingerprint": null, "mode": "support", "tier": "", "composition": "", "tier_signals": {}, "classifier_path": "", "dispatch_rationale_token": "support_pattern:order_status:cs", "confidence_signal": "high", "triggering_keyword": "kde je moje objedn\u00e1vka", "verbatim_query": "kde je moje objedn\u00e1vka"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 2, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb3e4-853e-7022-aee5-ed9b4e05ba24]"
+

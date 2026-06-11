@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.1",
+  "task": "subtask-9-preflight-rerun",
+  "round": 2,
+  "round_cap": 2,
+  "agent": "pre-flight-gate",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Declared goal (verbatim opening line): 'Subtasks 10 and 11 must validate every affected turn-1 prompt from a fresh cache MISS, then prove at least the cacheable product-search path replays byte-identical payload on a fresh-thread HIT.' Deliverable fulfilling it: a copy-paste-runnable MISS/HIT runbook (per-row var block, DB-enable check, query_text-keyed MISS-force, fresh-thread initiate/converse curls, non-NULL sanity SELECT, cache_key fallback, V2-V5-scoped SHA comparator, V1-V20 query set with cacheable-vs-MISS-only legs marked) -- title and deliverable match. (a) Unverified/Inferred: 3 [Inferred:] tags, all ancillary schema-derived reasoning resting on migrations I confirmed; none load-bearing-and-unverified. (b) Scope: stays in-lane for subtasks 10/11 cache-freshness; no overrun/underrun. (c) Citations: 7 code-anchor citations re-traced PASS (cache_repo upsert + _UPSERT_SQL names query_text in INSERT and ON CONFLICT, signature_cache upsert forwards query_text, conversation_service _turn_classification_from_cache_payload returns llm_call_count=None in both branches with all keep-dict fields present, migration 0004 query_text nullable rolling-deploy, mode_detection _normalize_language_key maps czech->cs); bash-log .agent_context/logs citations are non-retraceable session-capture evidence (scope_not_covered). (d) Research canonical failure mode (thorough prose answering a nearby-easier question / non-executable doc): absent -- every claim maps to a runnable copy-paste step. (e) Research structure: executive summary (opening line), citation-bearing claims, all four sections present. (f) Three prior defects re-traced and CLEARED: no literal 1781106672 (RUN_DIR-derived capture paths); query_text precondition+sanity-check+cache_key fallback present and write-chain verified end-to-end; SHA/turn_classification equality scoped to V2-V5 with V7-V20 anomaly-not-failure guidance. Independent pass found no new consumption-blocker: fences balanced (8 blocks), no reference-before-definition, comparator fields all real, cs language code correct, no drafting residue. (g) T3 citations: N/A (no web citations).",
+  "scope_covered": [
+    "active_rubrics coerced from empty/absent to [generator-preflight] -- N/A (delegation supplied [generator-preflight] explicitly)",
+    "misroute check: artifact exhibits research markers (executive-summary opening line + citation-bearing claims + 4 sections)",
+    "D-unverified-load-bearing: 3 [Inferred:] tags classified ancillary (schema-derived DELETE-overbroad reasoning); 0 load-bearing-and-unverified",
+    "D-scope-breadth-sanity: artifact scope (MISS/HIT runbook for subtasks 10/11) matches consumption contract; no overrun/underrun",
+    "D-citation-verifiability: re-traced 7 code-anchor citations PASS -- cache_repo.py (upsert, _UPSERT_SQL), signature_cache.py (upsert), conversation_service.py (_turn_classification_from_cache_payload), migration 0004 (upgrade), mode_detection.py (_normalize_language_key)",
+    "D-senior-engineer-eyebrow + title/content-drift: declared goal quoted vs deliverable -- match; runbook executable as written",
+    "D-drafting-residue-scrub: zero TODO/FIXME/WIP/HTML-comment/editorial-question matches",
+    "Prior defect 1 (hardcoded session-id): grep 1781106672 -> 0 matches; RUN_DIR wiring lines 51-57 runnable",
+    "Prior defect 2 (query_text precondition): line 68 precondition + lines 95-104 sanity check + lines 104-114 cache_key fallback; write-chain converse->signature_cache.upsert->repo.upsert->_UPSERT_SQL verified, _UPSERT_SQL names query_text in INSERT cols and ON CONFLICT update",
+    "Prior defect 3 (SHA equality scoping): line 132 scopes equality to V2-V5; line 135 comparator guard comment; V7-V20 HIT = anomaly not failure",
+    "Independent re-check: fence balance (16 fence lines = 8 blocks); variable ordering (no reference-before-definition); DELETE/SELECT predicates use real columns; comparator keep-dict fields all present in reconstruction; cs-not-cz language code"
+  ],
+  "scope_not_covered": [
+    "bash-log citations under .agent_context/logs/** (bash_researcher_*.log) -- unverifiable-observed-or-external-source: session capture evidence, not locally retraceable code anchors; the runbook's live-verified claims rest on them but they are anchor-exempt session-log paths",
+    "citation-count self-audit line 181 ('26 citations verified') not exactly recounted -- non-load-bearing metadata; no downstream consumer branches on the tally, so a minor count discrepancy fails the (a)/(b)/(c) flag predicate and is not a gap"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-signature-cache-freshness-r2.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-signature-cache-freshness-r2.json"
+  }
+}

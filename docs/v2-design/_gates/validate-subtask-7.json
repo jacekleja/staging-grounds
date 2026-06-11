@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.1",
+  "task": "validate-subtask-7",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "validator",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Both rubrics satisfied. code-vs-spec: all three prescribed patches to handoff-v2-final-state-plan-brief.md were applied and match the spec exactly. (1) Compositions-per-tier table now carries a 'Live value (R4)' column mapping narrow->decisive, mid->shapeable, broad->exploratory, overwhelming->intractable (diff lines around 71-84), identical to the ratified table tier-vocabulary-reconciliation.md:28-31 and plan checklist lines 315-318. (2) Architecture ASCII block annotates the R2 line with '(live/R4: decisive | shapeable | exploratory | intractable -- see tier-vocabulary-reconciliation.md)', order-preserving 1:1 (diff ~line 46), per spec line 64. (3) Framing question 3 struck through and marked RESOLVED pointing to tier-vocabulary-reconciliation.md (diff line 22), per spec line 65. constraint-compliance: NO forbidden edits -- git diff confirms docs/_handoff-pack/* untouched (empty name-only diff), no canonical_enums.py / tier_signal_computer.py / test file edits, no live-value renames. The conversational-search and luigisbox-ai diff entries are submodule-gitlink-to-symlink worktree-wiring type changes (mode 160000->120000), not content edits. The two .py files in the diff are .claude/hooks/ deletions (apparatus pruning), unrelated to tier vocabulary. No constraint file under .claude/knowledge/constraints/ carries a globs: pattern matching docs/v2-design/*.md, so D-constraint-compliance applies-to-none for this docs target. The patched mapping matches the ratified mapping exactly with no renames.",
+  "scope_covered": [
+    "D-spec-coverage: all three prescribed patches traced to diff and matched to spec (tier-vocabulary-reconciliation.md:58-70) and plan checklist (plan-v2-final-state-gap-closure.md:315-318)",
+    "D-constraint-compliance: constraint glob enumerated; no glob matches docs/v2-design/*.md; handoff-pack frozen-provenance guard verified untouched via git diff --name-only -- docs/_handoff-pack/",
+    "Patch 1: Compositions per tier table Live value (R4) column",
+    "Patch 2: architecture ASCII block live-name annotation",
+    "Patch 3: framing question 3 RESOLVED marker",
+    "Forbidden-edit check: docs/_handoff-pack/* untouched; no enum/test/code renames; submodule type-changes confirmed worktree-wiring only",
+    "Mapping fidelity: patched narrow/mid/broad/overwhelming -> decisive/shapeable/exploratory/intractable matches ratified table 1:1"
+  ],
+  "scope_not_covered": [
+    "D-edge-cases: N/A no-shared-state -- docs target, no input space to partition",
+    "D-error-paths: N/A no-shared-state -- prose patch, no failure modes",
+    "D-integration-points: N/A no-untrusted-input -- docs cross-reference only (link to tier-vocabulary-reconciliation.md verified present)",
+    "D-concurrency-idempotency: N/A no-shared-state",
+    "D-security: N/A no-privilege-boundary -- docs-only edit",
+    "D-consistency: verified -- patch follows surrounding markdown table/ASCII conventions of the brief",
+    "D-sketch-adherence: N/A no-design-phase-sketch-for-this-subtask",
+    "D-untested: N/A -- docs target, no executable code paths",
+    "D-exercise-evidence: N/A -- no separate impl report (delegation states validate directly against diff + spec); the upstream design doc tier-vocabulary-reconciliation.md carries its own non-degenerate Verification section",
+    "Live SSE decisive-tier probe: not run -- out of docs-subtask scope, flagged in spec Unknowns #1 (live-data not code)"
+  ],
+  "active_rubrics": ["code-vs-spec", "constraint-compliance"]
+}

@@ -1,0 +1,36 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 2, "phase_total": null, "source_node": "handle_regular_turn", "iteration": null}}
+
+data: "I"
+
+data: "'d love"
+
+data: " to help you find the perfect gift for"
+
+data: " your dad \u2014"
+
+data: " let"
+
+data: "'s"
+
+data: " figure"
+
+data: " out what he"
+
+data: "'d"
+
+data: " truly"
+
+data: " love"
+
+data: "!"
+
+data: "```lbjson\n{\"shape\": \"chat_takeover\", \"mode\": \"gift_advisor\", \"catalogue_results\": {\"visibility\": \"hidden\"}, \"chips\": [{\"label\": \"Hobbies & interests\", \"filter_value\": \"hobbies_and_interests\", \"source\": \"guidebook\", \"style\": \"anchored_category_chip\"}, {\"label\": \"Lifestyle\", \"filter_value\": \"lifestyle\", \"source\": \"guidebook\", \"style\": \"anchored_category_chip\"}, {\"label\": \"Practical / useful\", \"filter_value\": \"practical_useful\", \"source\": \"guidebook\", \"style\": \"anchored_category_chip\"}, {\"label\": \"I have an idea\", \"filter_value\": \"i_have_an_idea\", \"source\": \"guidebook\", \"style\": \"anchored_category_chip\"}], \"type_it_out\": {\"enabled\": true, \"label\": \"Type it out\", \"style\": \"free_text\"}, \"must_ask_before_recommending\": [\"recipient_context\", \"budget\", \"occasion\"], \"writes\": {\"chat_takeover_trigger\": true}}\n```"
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 17, "tool_calls": [], "timestamps": {"custom_event_ms": 1098.0848059989512, "first_partial_ms": 2340.5731199891306, "done_ms": 3295.701973984251}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": "local-gift-advisor-turn1-prompt@8d308c58+overlay-none+mode-gift_advisor+modetpl-none+sig-8d308c58", "mode": "gift_advisor", "tier": "exploratory", "composition": "question_led", "tier_signals": {"result_count": 0, "top_share_max": 0.0, "axis_entropy": 0.0, "filled_axes": 0, "has_brand_token": false, "has_model_token": false, "query_token_count": 0, "price_spread": 0.0, "max_axis_top_share": null, "diversity_score_D": 0.4, "tier": "zero_results", "composition": "question_led", "confidence": 0.0, "classifier_path": "hot-path", "signals_conflict": false, "extra": {}}, "classifier_path": "hot-path", "dispatch_rationale_token": "gift_advisor_recognizer:gift for:en", "confidence_signal": "medium", "triggering_keyword": "gift for", "verbatim_query": "a gift for my dad"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 3, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb3e3-165e-7ff0-af37-9deea8e2b7b2]"
+

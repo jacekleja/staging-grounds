@@ -1,0 +1,26 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 2, "phase_total": null, "source_node": "handle_regular_turn", "iteration": null}}
+
+data: "Choosing the right vacuum depends"
+
+data: " on understanding"
+
+data: " your space"
+
+data: ", habits"
+
+data: ", and what"
+
+data: " matters"
+
+data: " most to you."
+
+data: "```lbjson\n{\"shape\": \"chat_takeover\", \"mode\": \"advice\", \"catalogue_results\": {\"visibility\": \"hidden\"}, \"chips\": [{\"label\": \"Fit for my needs\", \"filter_value\": \"fit_for_my_needs\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"Compare trade-offs\", \"filter_value\": \"compare_tradeoffs\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"Budget check\", \"filter_value\": \"budget_check\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"Timing and priorities\", \"filter_value\": \"timing_priorities\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}], \"must_ask_before_recommending\": [\"use_case\", \"constraints\", \"decision_criteria\"], \"hard_commitment_gates\": {\"type_it_out_parallel_on\": true, \"chat_affordance_on\": true}, \"writes\": {\"chat_takeover_trigger\": true}, \"type_it_out\": {\"enabled\": true, \"label\": \"Type it out\", \"style\": \"free_text\"}, \"chat_affordance\": {\"label\": \"Chat with me instead \u2192\", \"style\": \"dashed_pill\", \"writes\": {\"chat_takeover_trigger\": true}}}\n```"
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 12, "tool_calls": [], "timestamps": {"custom_event_ms": 891.3508380064741, "first_partial_ms": 2196.8565770075656, "done_ms": 2966.9152930146083}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": "local-advice-turn1-prompt@0919bc4f+overlay-none+mode-advice+modetpl-none+sig-0919bc4f", "mode": "advice", "tier": "exploratory", "composition": "question_led", "tier_signals": {"result_count": 0, "top_share_max": 0.0, "axis_entropy": 0.0, "filled_axes": 0, "has_brand_token": false, "has_model_token": false, "query_token_count": 0, "price_spread": 0.0, "max_axis_top_share": null, "diversity_score_D": 0.4, "tier": "zero_results", "composition": "question_led", "confidence": 0.0, "classifier_path": "hot-path", "signals_conflict": false, "extra": {}}, "classifier_path": "hot-path", "dispatch_rationale_token": "advice_recognizer:how do i choose:en", "confidence_signal": "medium", "triggering_keyword": "how do i choose", "verbatim_query": "how do I choose a vacuum cleaner"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 3, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb3e3-ddfd-7562-83db-2b05bfaddbbc]"
+

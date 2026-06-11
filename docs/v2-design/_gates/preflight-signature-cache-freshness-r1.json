@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.1",
+  "task": "subtask-9-preflight-rerun",
+  "round": 1,
+  "round_cap": 1,
+  "agent": "pre-flight-gate",
+  "verdict": "request-changes",
+  "gaps": [
+    {
+      "id": "G-R1-PF-1",
+      "description": "Binding SSE-capture paths MISS_SSE/HIT_SSE hardcode the authoring session's session-id (.agent_context/sessions/1781106672-6469-2465b2ba685c/...), which is foreign to the Subtask 10/11 consumer sessions that copy this runbook verbatim.",
+      "classification": "critical",
+      "category": "incorrect-implementation",
+      "evidence": "docs/v2-design/signature-cache-validation-freshness-report.md:51-52",
+      "fix_hint": "Derive MISS_SSE/HIT_SSE from a consumer-set RUN_DIR or worktree-relative scratch path; embed no literal session-id. The curl redirect (`> \"$MISS_SSE\"`) and the python comparator (lines 119-151) both depend on these paths resolving in the consumer's own session. should-be-issue"
+    },
+    {
+      "id": "G-R1-PF-2",
+      "description": "The force-MISS procedure keys exclusively on the NULLable query_text column, but the report states no precondition that the running proxy build populates query_text on write. Migration 0004 adds query_text as nullable with rationale 'old code emits no value'; against a non-writing build the DELETE matches zero rows, rows_after_delete=0 reports a false-clean, and a stale cached row survives -> consumer mis-asserts freshness.",
+      "classification": "important",
+      "category": "error-handling",
+      "evidence": "conversational-search/conversational-proxy/alembic/versions/20260527040001_0004_v2_add_query_text.py (upgrade)",
+      "fix_hint": "Add a one-line precondition that the proxy build must populate query_text on write, plus a sanity check (confirm a freshly written row has non-NULL query_text) before trusting rows_after_delete=0 as a force-MISS proof. should-be-issue"
+    },
+    {
+      "id": "G-R1-PF-3",
+      "description": "The single verbatim MISS/HIT comparator asserts miss[3]==hit[3] over a fixed turn_classification key set and SHA equality, but the report presents one procedure for all V-rows and does not scope this equality assertion to the cacheable product-search rows (V2-V5) for which it was validated. A takeover row (V7-V20) that unexpectedly produces a DB row would be run through a comparator whose assertion semantics were only proven for the product-search payload shape.",
+      "classification": "important",
+      "category": "scope-deviation",
+      "evidence": "docs/v2-design/signature-cache-validation-freshness-report.md:140-150",
+      "fix_hint": "Explicitly scope the SHA/turn_classification equality assertion to V2-V5; state what a consumer should assert for a takeover row that unexpectedly yields a HIT row."
+    }
+  ],
+  "scope_covered": [
+    "Misroute check: artifact has research markers (executive summary line 1, citation-bearing claims, 4 required sections) - passes",
+    "D-citation-verifiability: re-traced code-anchor citations: _cache_key.py (compute_cache_key) key-tuple claim VERIFIED; conversation_service.py call-site language=metadata.get('language') or 'sk' VERIFIED at lines 417-421; _turn_classification_from_cache_payload llm_call_count=None VERIFIED at lines 63/80; cache_write_skip_fingerprint_mismatch log + fingerprint-mismatch guard VERIFIED at lines 699-704; mode_detection.py _normalize_language_key czech->cs VERIFIED at line 38; migrations 0003 (no language column) and 0004 (query_text TEXT nullable) VERIFIED",
+    "D-unverified-load-bearing: 2 [Inferred:] tags (line 7) both concern overbroad-but-sufficient DELETE-by-query_text claim; independently substantiated from 0003/0004 schema (no language column, query_text exists) - load-bearing but sound",
+    "D-scope-breadth-sanity: report scope (V1-V20 query set + verbatim MISS/HIT procedure + cache facts + boundaries) matches consumer needs for Subtasks 10/11; no out-of-lane content",
+    "D-senior-engineer-eyebrow: assessed runbook executability - variable defs, DELETE/SELECT psql predicates, initiate/converse curl shapes, python SHA-comparator; found the 3 gaps above",
+    "D-drafting-residue-scrub: no HTML comments, TODO/FIXME, WIP markers, or stale draft refs found",
+    "Step-3 research per-type contract: trigger file unreadable - see scope_not_covered",
+    "Consumption-context Q1 (V-row consistency): rows internally consistent; prompt/lang/validates/assertions/cache-leg columns coherent",
+    "Consumption-context Q3 (eviction-predicate scope): DELETE by tracker_id+query_text overbroad-but-sufficient claim is correct and clearly stated, grounded in verified schema",
+    "Consumption-context Q4 (MISS-only exceptions): V7-V20 fingerprint-mismatch skip and V6 hard_fork direct-renderer-only are clearly flagged (lines 38-39, 98, 158-160)"
+  ],
+  "scope_not_covered": [
+    "9 [Verified: .agent_context/logs/bash_researcher_*.log:~NN] citations point to prior-session runtime bash logs (observed-behavior runtime evidence) - not locally retraceable: unverifiable-observed-or-external-source",
+    "Step3-trigger-file-unreadable: .claude/gates/pre-flight/types/research.md not loaded (fresh-eyes; applied inline research-type structural checks instead)"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "docs/v2-design/_gates/preflight-signature-cache-freshness-r1.md",
+    "sidecar_path": "docs/v2-design/_gates/preflight-signature-cache-freshness-r1.json"
+  }
+}

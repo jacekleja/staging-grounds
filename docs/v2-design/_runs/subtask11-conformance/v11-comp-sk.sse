@@ -1,0 +1,70 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 2, "phase_total": null, "source_node": "handle_regular_turn", "iteration": null}}
+
+data: "Git"
+
+data: "ara"
+
+data: " pon"
+
+data: "\u00faka mel"
+
+data: "\u00f3d"
+
+data: "iu"
+
+data: " a"
+
+data: " a"
+
+data: "kor"
+
+data: "dy"
+
+data: ", zat"
+
+data: "ia\u013e"
+
+data: " \u010d"
+
+data: "o b"
+
+data: "asa"
+
+data: " zab"
+
+data: "ez"
+
+data: "pe\u010d"
+
+data: "uje ryt"
+
+data: "m"
+
+data: "ick\u00fd"
+
+data: " z\u00e1"
+
+data: "klad"
+
+data: " a"
+
+data: " h"
+
+data: "\u013abku"
+
+data: " zv"
+
+data: "uku"
+
+data: "."
+
+data: "```lbjson\n{\"shape\": \"side_by_side_comparison\", \"mode\": \"comparison\", \"mode_shift_note\": \"comparison detected, swapping side-by-side for this turn\", \"catalogue_results\": {\"visibility\": \"hidden\"}, \"columns\": [{\"slot\": \"left\", \"label\": \"Product A\", \"style\": \"comparison_column\", \"writes\": {\"comparison_slot\": \"left\", \"comparison_candidate\": \"Product A\"}}, {\"slot\": \"right\", \"label\": \"Product B\", \"style\": \"comparison_column\", \"writes\": {\"comparison_slot\": \"right\", \"comparison_candidate\": \"Product B\"}}], \"type_it_out\": {\"enabled\": true, \"label\": \"Adjust comparison\", \"style\": \"free_text\"}, \"must_ask_before_recommending\": [\"left_product\", \"right_product\", \"decision_criteria\"]}\n```"
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 34, "tool_calls": [], "timestamps": {"custom_event_ms": 1113.1694039795548, "first_partial_ms": 2407.51676398213, "done_ms": 4401.971218991093}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": "local-comparison-turn-prompt@f51a290c+overlay-none+mode-comparison+modetpl-none+sig-f51a290c", "mode": "comparison", "tier": "exploratory", "composition": "question_led", "tier_signals": {"result_count": 0, "top_share_max": 0.0, "axis_entropy": 0.0, "filled_axes": 0, "has_brand_token": false, "has_model_token": false, "query_token_count": 0, "price_spread": 0.0, "max_axis_top_share": null, "diversity_score_D": 0.4, "tier": "zero_results", "composition": "question_led", "confidence": 0.0, "classifier_path": "hot-path", "signals_conflict": false, "extra": {}}, "classifier_path": "hot-path", "dispatch_rationale_token": "comparison_recognizer:porovnaj:sk", "confidence_signal": "medium", "triggering_keyword": "porovnaj", "verbatim_query": "porovnaj gitaru a basu"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 3, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb3e4-6f6b-7703-b9aa-0104ca833098]"
+

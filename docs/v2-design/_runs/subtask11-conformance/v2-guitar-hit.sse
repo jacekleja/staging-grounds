@@ -1,0 +1,18 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 1, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "Choose an option below to narrow your search.\n\n```lbjson\n{\"chips\": [{\"label\": \"Ernie Ball\", \"filter_value\": \"Ernie Ball\", \"count\": 271, "
+
+data: "\"facet\": \"brand\"}, {\"label\": \"PSD Guitars\", \"filter_value\": \"PSD Guitars\", \"count\": 143, \"facet\": \"brand\"}, {\"label\": \"DR Strings\", \"filter_value\": "
+
+data: "\"DR Strings\", \"count\": 123, \"facet\": \"brand\"}, {\"label\": \"Fender\", \"filter_value\": \"Fender\", \"count\": 122, \"facet\": \"brand\"}], \"shape\": \"preview\", "
+
+data: "\"chat_affordance\": {\"label\": \"Chat with me instead \u2192\", \"style\": \"dashed_pill\", \"writes\": {\"chat_takeover_trigger\": true}}, \"hatch\": {\"label\": \"Just browsing "
+
+data: "\u2014 show me popular searches\", \"style\": \"quiet_12px_grey_link\", \"writes\": {\"browse_intent\": true}}}\n```"
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 2, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: {"__meta__": {"version": 1, "tool_call_count": null, "token_count": null, "tool_calls": null, "timestamps": {"custom_event_ms": null, "first_partial_ms": null, "done_ms": null}, "turn_classification": {"llm_call_count": null, "prompt_fingerprint": "local-system-prompt@bd5ebd03+overlay-none+mode-none+modetpl-none+sig-none", "mode": "product_search", "tier": "shapeable", "composition": "refinement_chips_with_hatch", "tier_signals": {"tier": "shapeable", "extra": {}, "confidence": 0.015, "composition": "refinement_chips_with_hatch", "filled_axes": 2, "axis_entropy": 0.8692092756150831, "price_spread": 8150.847457627119, "result_count": 2759, "product_count": 10, "top_share_max": 0.46496815286624205, "classifier_path": "hot-path", "has_brand_token": false, "has_model_token": false, "signals_conflict": false, "diversity_score_D": 0.6247755215380281, "query_token_count": 0, "max_axis_top_share": 0.46496815286624205, "proxy_metadata_tier": "zero_results", "composition_table_live": true, "legacy_llm_prefix_tier": "zero_results", "composition_table_fallback": false, "composition_table_composition": "refinement_chips_with_hatch", "legacy_llm_prefix_composition": "question_led", "proxy_metadata_classifier_path": "hot-path", "composition_table_live_switch_applied": true}, "classifier_path": "hot-path", "dispatch_rationale_token": null, "confidence_signal": null, "triggering_keyword": null, "verbatim_query": null}, "cache": {"status": "HIT"}}}
+
+data: "[DONE conversational_run_bebaacda-e8b3-4c96-bc55-5b2fc8837af2]"
+

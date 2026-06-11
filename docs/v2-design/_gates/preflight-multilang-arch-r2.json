@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.1",
+  "task": "preflight-multilang-arch-r2",
+  "round": 2,
+  "round_cap": null,
+  "agent": "pre-flight-gate",
+  "verdict": "approve",
+  "gaps": [],
+  "clean_justification": "Declared goal (H1 'Multilingual Mode-Detection Architecture (Gap 7 detection layer)' + Subtask-2 expected output at plan:584 'chosen data shape, code surfaces, safety short-circuit ordering, language propagation proof, test matrix, migration constraints') is fulfilled by the deliverable: Proposed Approach (per-language YAML registry + dataclasses), Integration Points (code surfaces), Safety Short-Circuit Ordering, Language-Propagation Proof, Test Matrix, Migration Constraints all present and in-lane; no title/content drift. (b) No [Unverified]/[Inferred] tags (grep clean); named Assumptions A1-A5 + Unknowns U1-U3 each carry a resolution owner. (c) Scope matches Subtask 2 exactly; output localization explicitly deferred to Subtask 8 (no overrun/underrun). (d) ~18 file-anchor citations re-traced all PASS: plan :568/:334-382/:54-56/:584/:350-358/:360-365; graph.py:631-644/:276-284/:565-572/:399-445/:586-591/:238; token consumers turn_events_writer.py:55, turn_events_repo.py:38, conversation_service.py:71, langgraph_client.py:355. (e) Design failure mode (missing rejected-alternatives / unstated assumptions / nearby-easier-question drift) NOT present: six axis-distinct Rejected Alternatives R1-R6, five Assumptions, three Unknowns; answers the hard question not a nearby-easier one. (f) Proposed Approach + Rejected Alternatives both substantive. (g) No T3 web citations (N/A). All three prior request-changes defects genuinely resolved and safety short-circuit ordering verified clean and undisturbed (graph.py:636 unsafe-first return before matches-list allocation at :646).",
+  "scope_covered": [
+    "active_rubrics coerced check: supplied as [generator-preflight], no coercion needed",
+    "Misroute detection: artifact has 'Proposed Approach' + 'Rejected Alternatives' sections — valid design marker",
+    "D-unverified-load-bearing: grep for [Unverified]/[Inferred] returned 0 hits; doc uses named A1-A5/U1-U3 with resolution owners",
+    "D-scope-breadth-sanity: scope = INPUT dispatch detection only; output localization deferred to Subtask 8 — matches Subtask 2",
+    "D-citation-verifiability: re-traced plan citations (:568,:334-382,:54-56,:584,:350-358,:360-365) and graph.py code surfaces (631-644,276-284,565-572,399-445,586-591,238) and token consumers (turn_events_writer.py:55,turn_events_repo.py:38,conversation_service.py:71,langgraph_client.py:355) — all pass",
+    "D-senior-engineer-eyebrow + title/content-drift: H1/Subtask-2-output match deliverable; no drift",
+    "D-drafting-residue-scrub: grep for TODO/FIXME/HTML-comment/WIP/draft markers returned 0 hits",
+    "Step-3 design per-type failure mode (missing rejected-alts / nearby-easier-question): not present — R1-R6 + A1-A5 + U1-U3",
+    "DEFECT-1 verification: plan file exists (1018 lines), false-premise language fully removed, re-grounding citations resolve",
+    "DEFECT-2 verification: Integration Point 5 four-point coupled change matches _SupportPattern/_match_support_pattern/_validate_support_config strict-zip structure in graph.py",
+    "DEFECT-3 verification: token reframed as breaking change; live token graph.py:641 phrase at index 1; all in-repo consumers verified pass-through",
+    "Safety short-circuit ordering: graph.py:636 unsafe-first, returns before matches-list at :646 — clean, undisturbed"
+  ],
+  "scope_not_covered": [
+    "Slovak/Czech phrase correctness (U1) — native-speaker human gate, out of scope for design and for gate",
+    "Out-of-repo dispatch_rationale_token consumers (U3) — not knowable from this codebase; flagged for implementer sweep",
+    "[verified: observed behavior] citations (deflection-detection constraint) — unverifiable-observed-or-external-source",
+    "proxy-path citations (conversation_schema_v2.py:34 etc.) verified present via consumer grep; not exhaustively line-traced — well-formed, recorded not flagged"
+  ],
+  "active_rubrics": ["generator-preflight"],
+  "resolved_user_intent_path": null,
+  "output_paths": {
+    "artifact_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-multilang-arch-r2.md",
+    "sidecar_path": "/home/fanderman/projects/luigis-box/.agent_context/worktrees/session-1781106672-6469-2465b2ba685c/docs/v2-design/_gates/preflight-multilang-arch-r2.json"
+  }
+}

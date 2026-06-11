@@ -1,0 +1,48 @@
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "query_received", "phase_index": 1, "phase_total": null, "source_node": "reset_tool_call_count", "iteration": null}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "composing_response", "phase_index": 2, "phase_total": null, "source_node": "handle_regular_turn", "iteration": null}}
+
+data: "Pom"
+
+data: "\u00f4"
+
+data: "\u017eem"
+
+data: " v\u00e1m zor"
+
+data: "ientova\u0165"
+
+data: " sa v"
+
+data: " tom, \u010d"
+
+data: "o je pri"
+
+data: " v\u00fd"
+
+data: "bere"
+
+data: " vys"
+
+data: "\u00e1va\u010da"
+
+data: " skut"
+
+data: "o\u010d"
+
+data: "ne"
+
+data: " d"
+
+data: "\u00f4le\u017e"
+
+data: "it\u00e9."
+
+data: "```lbjson\n{\"shape\": \"chat_takeover\", \"mode\": \"advice\", \"catalogue_results\": {\"visibility\": \"hidden\"}, \"chips\": [{\"label\": \"Vhodn\u00e9 pre moje potreby\", \"filter_value\": \"fit_for_my_needs\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"Porovna\u0165 v\u00fdhody a nev\u00fdhody\", \"filter_value\": \"compare_tradeoffs\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"Overenie rozpo\u010dtu\", \"filter_value\": \"budget_check\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}, {\"label\": \"\u010cas a priority\", \"filter_value\": \"timing_priorities\", \"source\": \"guidebook\", \"style\": \"anchored_advice_chip\"}], \"must_ask_before_recommending\": [\"use_case\", \"constraints\", \"decision_criteria\"], \"hard_commitment_gates\": {\"type_it_out_parallel_on\": true, \"chat_affordance_on\": true}, \"writes\": {\"chat_takeover_trigger\": true}, \"type_it_out\": {\"enabled\": true, \"label\": \"Nap\u00ed\u0161te to\", \"style\": \"free_text\"}, \"chat_affordance\": {\"label\": \"Rad\u0161ej si popov\u00eddam \u2192\", \"style\": \"dashed_pill\", \"writes\": {\"chat_takeover_trigger\": true}}}\n```"
+
+data: {"__meta__": {"version": 1, "tool_call_count": 0, "token_count": 23, "tool_calls": [], "timestamps": {"custom_event_ms": 911.0513280029409, "first_partial_ms": 2210.1841419935226, "done_ms": 3493.303041002946}, "turn_classification": {"llm_call_count": 1, "prompt_fingerprint": "local-advice-turn1-prompt@dd737921+overlay-none+mode-advice+modetpl-none+sig-dd737921", "mode": "advice", "tier": "exploratory", "composition": "question_led", "tier_signals": {"result_count": 0, "top_share_max": 0.0, "axis_entropy": 0.0, "filled_axes": 0, "has_brand_token": false, "has_model_token": false, "query_token_count": 0, "price_spread": 0.0, "max_axis_top_share": null, "diversity_score_D": 0.4, "tier": "zero_results", "composition": "question_led", "confidence": 0.0, "classifier_path": "hot-path", "signals_conflict": false, "extra": {}}, "classifier_path": "hot-path", "dispatch_rationale_token": "advice_recognizer:ako si vybra\u0165:sk", "confidence_signal": "medium", "triggering_keyword": "ako si vybra\u0165", "verbatim_query": "ako si vybra\u0165 vys\u00e1va\u010d"}, "cache": {"status": "MISS"}}}
+
+data: {"__work_status__": {"kind": "lbx.work_status", "version": 1, "step": "done", "phase_index": 3, "phase_total": null, "source_node": "proxy", "iteration": null}}
+
+data: "[DONE conversational_run_019eb3e4-f245-7f03-87f2-e6e10315f38b]"
+
